@@ -82,18 +82,27 @@ Payload[4]: VERSION_PATCH (firmware patch version)
 
 ### Command: CAN Start (0x01)
 
-Starts the FDCAN peripheral.
+Initialises and starts the FDCAN peripheral with the specified arbitration and data phase bitrates.
 
 **Request:**
 ```
 Payload[0]: 0x01 (CMD_CAN_START)
+Payload[1]: Arbitration bitrate index (ARB_BITRATE_E)
+Payload[2]: Data bitrate index (DATA_BITRATE_E)
 ```
+
+See [CAN Bitrate Configuration](#can-bitrate-configuration) for valid index values.
 
 **Response:**
 ```
 Payload[0]: 0x01 (CMD_CAN_START)
 Payload[1]: Status (0 = HAL_OK, non-zero = HAL error code)
 ```
+
+**Error Conditions:**
+- `arbBitrate >= N_ARB_BITRATE` (index out of range)
+- `dataBitRate >= N_DATA_BITRATE` (index out of range)
+- `HAL_FDCAN_Init()` or `HAL_FDCAN_Start()` returns a non-OK status
 
 ### Command: CAN Stop (0x02)
 
@@ -298,6 +307,47 @@ STM32_Programmer_CLI -c port=USB1 -d firmware.bin 0x08000000 -v -g 0x08000000
 - The magic word is cleared before the jump so the device boots normally after flashing.
 - On Windows, the WinUSB driver must be installed for the DFU device (e.g., via [Zadig](https://zadig.akeo.ie/)).
 - See [docs/DFU_IMPLEMENTATION.md](../docs/DFU_IMPLEMENTATION.md) for full implementation details.
+
+## CAN Bitrate Configuration
+
+The `CMD_CAN_START` command selects bitrate settings by index into two lookup tables. Both tables are calculated for an 80 MHz FDCAN clock (time quantum = 12.5 ns) targeting an 87.5% sample point where achievable.
+
+**Sample point formula:** $(1 + \text{timeSeg1}) / (1 + \text{timeSeg1} + \text{timeSeg2})$
+
+### Arbitration Phase Bitrates (`ARB_BITRATE_E`)
+
+Hardware constraints: NominalPrescaler 1–512, NominalTimeSeg1 1–256, NominalTimeSeg2 1–128.
+
+| Index | Enum               | Bitrate  | Prescaler | TQ/bit | timeSeg1 | timeSeg2 | SJW | Sample Point |
+|-------|--------------------|----------|-----------|--------|----------|----------|-----|--------------|
+| 0     | ARB_BITRATE_1000K  | 1000 kbit/s | 1      | 80     | 69       | 10       | 10  | 87.5%        |
+| 1     | ARB_BITRATE_800K   | 800 kbit/s  | 1      | 100    | 86       | 13       | 13  | 87.0% \*    |
+| 2     | ARB_BITRATE_500K   | 500 kbit/s  | 2      | 80     | 69       | 10       | 10  | 87.5%        |
+| 3     | ARB_BITRATE_250K   | 250 kbit/s  | 4      | 80     | 69       | 10       | 10  | 87.5%        |
+| 4     | ARB_BITRATE_125K   | 125 kbit/s  | 8      | 80     | 69       | 10       | 10  | 87.5%        |
+| 5     | ARB_BITRATE_100K   | 100 kbit/s  | 10     | 80     | 69       | 10       | 10  | 87.5%        |
+| 6     | ARB_BITRATE_50K    | 50 kbit/s   | 20     | 80     | 69       | 10       | 10  | 87.5%        |
+| 7     | ARB_BITRATE_20K    | 20 kbit/s   | 50     | 80     | 69       | 10       | 10  | 87.5%        |
+| 8     | ARB_BITRATE_10K    | 10 kbit/s   | 100    | 80     | 69       | 10       | 10  | 87.5%        |
+
+\* 800 kbit/s requires 100 TQ/bit which is not divisible by 8; 87.0% is the closest achievable sample point.
+
+### Data Phase Bitrates (`DATA_BITRATE_E`)
+
+Hardware constraints: DataPrescaler 1–32, DataTimeSeg1 1–32, DataTimeSeg2 1–16.
+
+| Index | Enum                | Bitrate     | Prescaler | TQ/bit | timeSeg1 | timeSeg2 | SJW | Sample Point |
+|-------|---------------------|-------------|-----------|--------|----------|----------|-----|--------------|
+| 0     | DATA_BITRATE_5000K  | 5000 kbit/s | 1         | 16     | 13       | 2        | 2   | 87.5%        |
+| 1     | DATA_BITRATE_2000K  | 2000 kbit/s | 5         | 8      | 6        | 1        | 1   | 87.5%        |
+| 2     | DATA_BITRATE_1000K  | 1000 kbit/s | 5         | 16     | 13       | 2        | 2   | 87.5%        |
+| 3     | DATA_BITRATE_800K   | 800 kbit/s  | 4         | 25     | 21       | 3        | 3   | 88.0% \*    |
+| 4     | DATA_BITRATE_500K   | 500 kbit/s  | 10        | 16     | 13       | 2        | 2   | 87.5%        |
+| 5     | DATA_BITRATE_250K   | 250 kbit/s  | 20        | 16     | 13       | 2        | 2   | 87.5%        |
+| 6     | DATA_BITRATE_125K   | 125 kbit/s  | 20        | 32     | 27       | 4        | 4   | 87.5%        |
+| 7     | DATA_BITRATE_100K   | 100 kbit/s  | 25        | 32     | 27       | 4        | 4   | 87.5%        |
+
+\* 800 kbit/s at 80 MHz yields 100 TQ/bit total, not divisible by 8; prescaler=4 with 25 TQ/bit gives 88.0%, the closest achievable sample point.
 
 ## Frame Examples
 

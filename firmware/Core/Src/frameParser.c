@@ -6,6 +6,70 @@
 #define FRAME_RX_SIZE       (1024)
 #define FRAME_TX_SIZE       (512)
 
+typedef struct {
+    uint32_t prescaler;
+    uint32_t syncJumpWidth;
+    uint32_t timeSeg1;
+    uint32_t timeSeg2;
+} CAN_BITRATE_CONFIG_T;
+
+typedef enum {
+    ARB_BITRATE_1000K = 0,
+    ARB_BITRATE_800K,
+    ARB_BITRATE_500K,
+    ARB_BITRATE_250K,
+    ARB_BITRATE_125K,
+    ARB_BITRATE_100K,
+    ARB_BITRATE_50K,
+    ARB_BITRATE_20K,
+    ARB_BITRATE_10K,
+    N_ARB_BITRATE
+} ARB_BITRATE_E;
+
+static CAN_BITRATE_CONFIG_T const arbBitrateConfig[N_ARB_BITRATE] = {
+    // Note1: 80MHz clock; Time quantum = 1/80MHz = 12.5ns; {prescaler, sjw, timeSeg1, timeSeg2}
+    // Note2: sample point = (1+timeSeg1)/(1+timeSeg1+timeSeg2)
+    // Note3: All entries target 87.5% SP: (1+69)/(1+69+10) = 70/80 = 87.5%
+    //        except 800K which uses 100 TQ/bit (not divisible by 8): 87/100 = 87.0%
+    {1,   10, 69, 10},  // 1000K: prescaler=1,  80 TQ/bit, SP=87.5%
+    {1,   13, 86, 13},  // 800K:  prescaler=1, 100 TQ/bit, SP=87.0% (closest achievable)
+    {2,   10, 69, 10},  // 500K:  prescaler=2,  80 TQ/bit, SP=87.5%
+    {4,   10, 69, 10},  // 250K:  prescaler=4,  80 TQ/bit, SP=87.5%
+    {8,   10, 69, 10},  // 125K:  prescaler=8,  80 TQ/bit, SP=87.5%
+    {10,  10, 69, 10},  // 100K:  prescaler=10, 80 TQ/bit, SP=87.5%
+    {20,  10, 69, 10},  // 50K:   prescaler=20, 80 TQ/bit, SP=87.5%
+    {50,  10, 69, 10},  // 20K:   prescaler=50, 80 TQ/bit, SP=87.5%
+    {100, 10, 69, 10}   // 10K:   prescaler=100, 80 TQ/bit, SP=87.5%
+};
+
+typedef enum {
+    DATA_BITRATE_5000K = 0,
+    DATA_BITRATE_2000K,
+    DATA_BITRATE_1000K,
+    DATA_BITRATE_800K,
+    DATA_BITRATE_500K,
+    DATA_BITRATE_250K,
+    DATA_BITRATE_125K,
+    DATA_BITRATE_100K,
+    N_DATA_BITRATE
+} DATA_BITRATE_E;
+
+static CAN_BITRATE_CONFIG_T const dataBitrateConfig[N_DATA_BITRATE] = {
+    // Note1: 80MHz clock; Time quantum = 1/80MHz = 12.5ns; {prescaler, sjw, timeSeg1, timeSeg2}
+    // Note2: sample point = (1+timeSeg1)/(1+timeSeg1+timeSeg2)
+    // Note3: All entries target 87.5% SP where achievable (total TQ divisible by 8)
+    //        except 800K which uses 25 TQ/bit (100 total, not div by 8): 22/25 = 88.0%
+    // Note4: DataPrescaler max=32, DataTimeSeg1 max=32, DataTimeSeg2 max=16
+    {1,  2, 13,  2},  // 5000K: prescaler=1,  16 TQ/bit, SP=87.5%
+    {5,  1,  6,  1},  // 2000K: prescaler=5,   8 TQ/bit, SP=87.5%
+    {5,  2, 13,  2},  // 1000K: prescaler=5,  16 TQ/bit, SP=87.5%
+    {4,  3, 21,  3},  // 800K:  prescaler=4,  25 TQ/bit, SP=88.0% (closest achievable)
+    {10, 2, 13,  2},  // 500K:  prescaler=10, 16 TQ/bit, SP=87.5%
+    {20, 2, 13,  2},  // 250K:  prescaler=20, 16 TQ/bit, SP=87.5%
+    {20, 4, 27,  4},  // 125K:  prescaler=20, 32 TQ/bit, SP=87.5%
+    {25, 4, 27,  4}   // 100K:  prescaler=25, 32 TQ/bit, SP=87.5%
+};
+
 extern FDCAN_HandleTypeDef hfdcan1;
 
 volatile uint32_t rdPtr = 0;
@@ -42,7 +106,43 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
         }
 
         case CMD_CAN_START: {
-            HAL_StatusTypeDef sts = HAL_FDCAN_Start(&hfdcan1);
+            HAL_StatusTypeDef sts = HAL_OK;
+            const uint8_t arbBitrate = rxFrameBuffer[(index + PAYLOAD_OFFSET + 1) % FRAME_RX_SIZE];
+            const uint8_t dataBitRate = rxFrameBuffer[(index + PAYLOAD_OFFSET + 2) % FRAME_RX_SIZE];
+            if((arbBitrate >= N_ARB_BITRATE) || (dataBitRate >= N_DATA_BITRATE)) {
+                sts = HAL_ERROR;
+            }
+
+            if(HAL_OK == sts) {
+                if(HAL_FDCAN_GetState(&hfdcan1) == HAL_FDCAN_STATE_BUSY) {
+                    sts = HAL_FDCAN_Stop(&hfdcan1);
+                }
+            }
+
+            if(HAL_OK == sts) {
+                hfdcan1.Init.ClockDivider = FDCAN_CLOCK_DIV1;
+                hfdcan1.Init.FrameFormat = FDCAN_FRAME_FD_BRS;
+                hfdcan1.Init.Mode = FDCAN_MODE_NORMAL;
+                hfdcan1.Init.AutoRetransmission = ENABLE;
+                hfdcan1.Init.TransmitPause = DISABLE;
+                hfdcan1.Init.ProtocolException = DISABLE;
+                hfdcan1.Init.NominalPrescaler = arbBitrateConfig[arbBitrate].prescaler;
+                hfdcan1.Init.NominalSyncJumpWidth = arbBitrateConfig[arbBitrate].syncJumpWidth;
+                hfdcan1.Init.NominalTimeSeg1 = arbBitrateConfig[arbBitrate].timeSeg1;
+                hfdcan1.Init.NominalTimeSeg2 = arbBitrateConfig[arbBitrate].timeSeg2;
+                hfdcan1.Init.DataPrescaler = dataBitrateConfig[dataBitRate].prescaler;
+                hfdcan1.Init.DataSyncJumpWidth = dataBitrateConfig[dataBitRate].syncJumpWidth;
+                hfdcan1.Init.DataTimeSeg1 = dataBitrateConfig[dataBitRate].timeSeg1;
+                hfdcan1.Init.DataTimeSeg2 = dataBitrateConfig[dataBitRate].timeSeg2;
+                hfdcan1.Init.StdFiltersNbr = 0;
+                hfdcan1.Init.ExtFiltersNbr = 0;
+                hfdcan1.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
+                sts = HAL_FDCAN_Init(&hfdcan1);
+            }
+
+            if(HAL_OK == sts) {
+                sts = HAL_FDCAN_Start(&hfdcan1);
+            }
 
             respLen = 0;
             responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_CAN_START;
@@ -53,7 +153,10 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
         }
 
         case CMD_CAN_STOP: {
-            HAL_StatusTypeDef sts = HAL_FDCAN_Stop(&hfdcan1);
+            HAL_StatusTypeDef sts = HAL_OK;
+            if(HAL_FDCAN_GetState(&hfdcan1) == HAL_FDCAN_STATE_BUSY) {
+                sts = HAL_FDCAN_Stop(&hfdcan1);
+            }
 
             respLen = 0;
             responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_CAN_STOP;
@@ -151,8 +254,6 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
                         canTx.header.DataLength = FDCAN_DLC_BYTES_48;
                     } else if(dlc <= 64) {
                         canTx.header.DataLength = FDCAN_DLC_BYTES_64;
-                    } else {
-                        hasError = true;;
                     }
                 }
             }
