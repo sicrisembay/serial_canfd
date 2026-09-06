@@ -12,6 +12,7 @@ This project implements a bidirectional bridge between USB and CAN/CAN-FD networ
 - **CAN and CAN-FD Support** - Full support for both CAN Classic and CAN-FD frames
 - **Bit Rate Switch (BRS)** - CAN-FD frames with faster data phase transmission
 - **Extended Frame Support** - Both Standard (11-bit) and Extended (29-bit) identifiers
+- **Hardware RX Filtering** - Phase 1 support for FDCAN hardware receive filtering with standard and extended ID banks
 - **Frame Protocol** - Structured communication protocol with timestamp and sequence tracking
 - **Error Handling** - CAN error monitoring and statistics reporting
 - **Real-time Operation** - Ring buffer architecture for efficient data handling
@@ -87,6 +88,9 @@ The firmware uses a custom frame-based protocol for communication over USB. Each
 | PROTOCOL_STATUS | 0x12 | Get protocol status            |
 | GET_CAN_STATS  | 0x13 | Query CAN error statistics      |
 | RESET_CAN_STATS | 0x14 | Clear CAN error counters       |
+| SET_RX_FILTER | 0x15 | Configure one hardware RX filter |
+| CLEAR_RX_FILTER | 0x16 | Disable one or all RX filters |
+| GET_RX_FILTER | 0x17 | Query active filter count      |
 | ENTER_DFU     | 0xF0 | Reset into USB DFU bootloader    |
 
 For detailed protocol specifications, see [FRAME_SPECIFICATION.md](firmware/FRAME_SPECIFICATION.md).
@@ -156,7 +160,18 @@ CAN timing and configuration parameters are set in [webserial_canfd.ioc](firmwar
 - **Nominal Bit Rate:** Configurable (typically 500 kbps for CAN, 1 Mbps for CAN-FD)
 - **Data Bit Rate:** Configurable for CAN-FD (typically 2-5 Mbps)
 - **Sample Point:** Adjustable
-- **Filters:** Configurable receive filters
+- **Hardware Filters:** Phase 1 supports FDCAN hardware receive filtering for standard and extended IDs
+- **Filter Capacity:** STM32G431C8 provides 128 standard-ID filter elements and 64 extended-ID filter elements
+
+### RX Filter API
+
+The firmware exposes hardware RX filter configuration through the protocol and helper functions:
+
+- `SET_RX_FILTER` configures one filter slot with ID or mask mode
+- `CLEAR_RX_FILTER` disables a single slot or clears every slot
+- `GET_RX_FILTER` reports the number of active filters for a selected ID type
+
+This is implemented directly in the FDCAN filter RAM and is intended for host-side filtering at the protocol layer.
 
 ## Note on BOOT configuration
 In MKS CANable v2.0, BOOT0 and CAN_RX share the same pin45.  To properly debug the firmware using SWD JTAG, nBOOT0 (bit27 in FLASH_OPTR) should be set to 1 and nSWBOOT0 (bit26 in FLASH_OPTR) should be set to 0.
@@ -182,7 +197,8 @@ main loop:
   ├─ PARSER_Process()   - Frame parsing and command dispatch
   ├─ CANTX_Process()    - CAN transmission queue
   ├─ CANRX_Process()    - CAN reception and forwarding
-  └─ CANErr_Process()   - Error monitoring
+  ├─ CANErr_Process()   - Error monitoring
+  └─ RX filter helpers  - Hardware FDCAN receive filter programming
 ```
 
 ### Key Components

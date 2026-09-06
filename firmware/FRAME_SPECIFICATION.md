@@ -281,6 +281,80 @@ Payload[0]: 0x14 (CMD_RESET_CAN_STATS)
 Payload[1]: Status (0 = success)
 ```
 
+### Command: Set RX Filter (0x15)
+
+Configures one hardware FDCAN receive filter entry. The STM32G431C8 has 128 standard-ID slots and 64 extended-ID slots, mapped directly to the FDCAN hardware filter RAM.
+
+**Request:**
+```
+Payload[0]: 0x15 (CMD_SET_RX_FILTER)
+Payload[1]: filterIndex (0..127 for standard or 0..63 for extended)
+Payload[2]: enabled (0 = disable/clear, 1 = enable)
+Payload[3]: idType (0 = standard ID, 1 = extended ID)
+Payload[4]: mode (1 = ID-match, 2 = mask-match)
+Payload[5]: reserved (must be 0)
+Payload[6-9]:   id (uint32_t, little-endian)
+Payload[10-13]: mask (uint32_t, little-endian)
+```
+
+**Behavior:**
+- If `enabled == 0` or `mode == 0`, the firmware clears the filter slot instead of programming it.
+- For `mode == ID`, the firmware automatically applies the valid mask for the selected ID type:
+  - Standard ID: `0x7FF`
+  - Extended ID: `0x1FFFFFFF`
+- `HAL_FDCAN_ConfigFilter()` is used with `FDCAN_FILTER_MASK` and the selected filter index.
+- If the filter assignment is valid, the FDCAN global filter is reconfigured to route matching messages into RX FIFO 0.
+
+**Response:**
+```
+Payload[0]: 0x15 (CMD_SET_RX_FILTER)
+Payload[1]: Status (0 = HAL_OK, non-zero = HAL error code)
+```
+
+### Command: Clear RX Filter (0x16)
+
+Disables a single hardware RX filter or clears all RX filters.
+
+**Request:**
+```
+Payload[0]: 0x16 (CMD_CLEAR_RX_FILTER)
+Payload[1]: filterIndex (0..127 standard or 0..63 extended, or 0xFF to clear all)
+Payload[2]: idType (0 = standard ID, 1 = extended ID)
+```
+
+**Behavior:**
+- `filterIndex == 0xFF` clears all configured hardware receive filters for both standard and extended ID banks.
+- Otherwise, only the selected filter slot is disabled with `FDCAN_FILTER_DISABLE`.
+
+**Response:**
+```
+Payload[0]: 0x16 (CMD_CLEAR_RX_FILTER)
+Payload[1]: Status (0 = HAL_OK, non-zero = HAL error code)
+```
+
+### Command: Get RX Filter (0x17)
+
+Returns the active hardware receive-filter count for the selected ID type.
+
+**Request:**
+```
+Payload[0]: 0x17 (CMD_GET_RX_FILTER)
+Payload[1]: idType (0 = standard ID, 1 = extended ID)
+```
+
+**Response:**
+```
+Payload[0]: 0x17 (CMD_GET_RX_FILTER)
+Payload[1]: idType
+Payload[2]: filterCount
+Payload[3]: reserved (0)
+```
+
+**Notes:**
+- Standard ID filter count is reported as the number of active standard-ID filter entries.
+- Extended ID filter count is reported as the number of active extended-ID filter entries.
+- The response is a count of configured entries, not a list of filter values.
+
 ### Command: Enter DFU (0xF0)
 
 Triggers a reset into the STM32 ROM USB DFU bootloader. Upon receiving this command, the firmware writes a magic word to a reserved RAM location (`.noinit` section) and immediately calls `NVIC_SystemReset()`. On the next boot, `main()` detects the magic word before any peripheral initialisation and jumps to the factory ROM DFU bootloader at `0x1FFF0000`.
