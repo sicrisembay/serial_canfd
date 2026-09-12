@@ -1,0 +1,14 @@
+# Visual Studio / .NET generated folders
+.vs/
+**/bin/
+**/obj/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Optional local build artifacts
+*.pdb
+*.cache
