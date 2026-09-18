@@ -47,6 +47,7 @@ void CANErr_Process(void);
 void CAN_stat_send(void);
 CanStat_t CAN_get_stats(void);
 void CAN_reset_stats(void);
+HAL_StatusTypeDef CAN_ApplyAllFilter(void);
 HAL_StatusTypeDef CAN_SetRxFilter(uint8_t filterIndex,
                                  uint8_t idType,
                                  uint8_t mode,
@@ -55,5 +56,6 @@ HAL_StatusTypeDef CAN_SetRxFilter(uint8_t filterIndex,
 HAL_StatusTypeDef CAN_ClearRxFilter(uint8_t filterIndex, uint8_t idType);
 HAL_StatusTypeDef CAN_ClearAllRxFilters(void);
 uint8_t CAN_GetRxFilterCount(uint8_t idType);
+HAL_StatusTypeDef CAN_GetRxFilterInfo(uint8_t filterIndex, uint8_t idType, RxFilterConfig_t * filterInfo);
 
 #endif /* INC_CANPARSER_H_ */

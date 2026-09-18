@@ -22,14 +22,27 @@ static CanStat_t canStat = {0};
 static uint32_t can_tx_loss_packet_count = 0;
 static RxFilterConfig_t stdRxFilters[RX_FILTER_MAX_STANDARD];
 static RxFilterConfig_t extRxFilters[RX_FILTER_MAX_EXTENDED];
-static uint8_t stdFilterCount = 0;
-static uint8_t extFilterCount = 0;
+
+static uint8_t CAN_CountEnabledFilters(const RxFilterConfig_t *filterArray, uint32_t maxFilterCount)
+{
+    uint32_t i;
+    uint8_t count = 0U;
+
+    for(i = 0; i < maxFilterCount; i++) {
+        if(filterArray[i].enabled != 0U) {
+            count++;
+        }
+    }
+
+    return count;
+}
 
 static HAL_StatusTypeDef CAN_ApplyGlobalFilter(void)
 {
     HAL_StatusTypeDef sts;
 
-    if((stdFilterCount == 0U) && (extFilterCount == 0U)) {
+    if((CAN_CountEnabledFilters(stdRxFilters, RX_FILTER_MAX_STANDARD) == 0U) &&
+       (CAN_CountEnabledFilters(extRxFilters, RX_FILTER_MAX_EXTENDED) == 0U)) {
         sts = HAL_FDCAN_ConfigGlobalFilter(&hfdcan1,
                                           FDCAN_ACCEPT_IN_RX_FIFO0,
                                           FDCAN_ACCEPT_IN_RX_FIFO0,
@@ -83,6 +96,39 @@ static HAL_StatusTypeDef CAN_ProgramFilterElement(const RxFilterConfig_t *cfg)
     return HAL_FDCAN_ConfigFilter(&hfdcan1, &filterConfig);
 }
 
+
+HAL_StatusTypeDef CAN_ApplyAllFilter(void)
+{
+    HAL_StatusTypeDef sts = HAL_OK;
+
+    if(hfdcan1.State != HAL_FDCAN_STATE_READY) {
+        return HAL_ERROR;
+    }
+
+    for(uint32_t i = 0; i < RX_FILTER_MAX_STANDARD; i++) {
+        if(stdRxFilters[i].enabled == 0U) {
+            continue;
+        }
+        sts = CAN_ProgramFilterElement(&stdRxFilters[i]);
+        if(sts != HAL_OK) {
+            return sts;
+        }
+    }
+
+    for(uint32_t i = 0; i < RX_FILTER_MAX_EXTENDED; i++) {
+        if(extRxFilters[i].enabled == 0U) {
+            continue;
+        }
+        sts = CAN_ProgramFilterElement(&extRxFilters[i]);
+        if(sts != HAL_OK) {
+            return sts;
+        }
+    }
+
+    return CAN_ApplyGlobalFilter();
+}
+
+
 HAL_StatusTypeDef CAN_SetRxFilter(uint8_t filterIndex,
                                  uint8_t idType,
                                  uint8_t mode,
@@ -91,8 +137,10 @@ HAL_StatusTypeDef CAN_SetRxFilter(uint8_t filterIndex,
 {
     uint32_t maxFilterCount = 0;
     RxFilterConfig_t *filterArray = (RxFilterConfig_t *)0;
-    uint8_t *filterCount = (uint8_t *)0;
-    HAL_StatusTypeDef sts = HAL_OK;
+
+    if(hfdcan1.State != HAL_FDCAN_STATE_READY) {
+        return HAL_ERROR;
+    }
 
     if((idType != RX_FILTER_ID_STANDARD) && (idType != RX_FILTER_ID_EXTENDED)) {
         return HAL_ERROR;
@@ -105,47 +153,33 @@ HAL_StatusTypeDef CAN_SetRxFilter(uint8_t filterIndex,
     if(idType == RX_FILTER_ID_STANDARD) {
         maxFilterCount = RX_FILTER_MAX_STANDARD;
         filterArray = stdRxFilters;
-        filterCount = &stdFilterCount;
     } else {
         maxFilterCount = RX_FILTER_MAX_EXTENDED;
         filterArray = extRxFilters;
-        filterCount = &extFilterCount;
     }
 
     if(filterIndex >= maxFilterCount) {
         return HAL_ERROR;
     }
 
-    if((hfdcan1.State == HAL_FDCAN_STATE_BUSY) || (hfdcan1.State == HAL_FDCAN_STATE_READY)) {
-        filterArray[filterIndex].enabled = 1U;
-        filterArray[filterIndex].idType = idType;
-        filterArray[filterIndex].mode = mode;
-        filterArray[filterIndex].filterIndex = filterIndex;
-        filterArray[filterIndex].id = id;
-        filterArray[filterIndex].mask = mask;
+    filterArray[filterIndex].enabled = 1U;
+    filterArray[filterIndex].idType = idType;
+    filterArray[filterIndex].mode = mode;
+    filterArray[filterIndex].filterIndex = filterIndex;
+    filterArray[filterIndex].id = id;
+    filterArray[filterIndex].mask = mask;
 
-        if(*filterCount < (filterIndex + 1U)) {
-            *filterCount = (uint8_t)(filterIndex + 1U);
-        }
-
-        sts = CAN_ProgramFilterElement(&filterArray[filterIndex]);
-        if(sts == HAL_OK) {
-            sts = CAN_ApplyGlobalFilter();
-        }
-    } else {
-        sts = HAL_ERROR;
-    }
-
-    return sts;
+    return HAL_OK;
 }
 
 HAL_StatusTypeDef CAN_ClearRxFilter(uint8_t filterIndex, uint8_t idType)
 {
     uint32_t maxFilterCount = 0;
     RxFilterConfig_t *filterArray = (RxFilterConfig_t *)0;
-    uint8_t *filterCount = (uint8_t *)0;
-    FDCAN_FilterTypeDef filterConfig;
-    HAL_StatusTypeDef sts;
+
+    if(hfdcan1.State != HAL_FDCAN_STATE_READY) {
+        return HAL_ERROR;
+    }
 
     if((idType != RX_FILTER_ID_STANDARD) && (idType != RX_FILTER_ID_EXTENDED)) {
         return HAL_ERROR;
@@ -154,80 +188,71 @@ HAL_StatusTypeDef CAN_ClearRxFilter(uint8_t filterIndex, uint8_t idType)
     if(idType == RX_FILTER_ID_STANDARD) {
         maxFilterCount = RX_FILTER_MAX_STANDARD;
         filterArray = stdRxFilters;
-        filterCount = &stdFilterCount;
     } else {
         maxFilterCount = RX_FILTER_MAX_EXTENDED;
         filterArray = extRxFilters;
-        filterCount = &extFilterCount;
     }
 
     if(filterIndex >= maxFilterCount) {
         return HAL_ERROR;
     }
 
-    memset(&filterConfig, 0, sizeof(filterConfig));
-    filterConfig.IdType = (idType == RX_FILTER_ID_EXTENDED) ? FDCAN_EXTENDED_ID : FDCAN_STANDARD_ID;
-    filterConfig.FilterIndex = filterIndex;
-    filterConfig.FilterType = FDCAN_FILTER_MASK;
-    filterConfig.FilterConfig = FDCAN_FILTER_DISABLE;
-    filterConfig.FilterID1 = 0U;
-    filterConfig.FilterID2 = 0U;
+    memset(&filterArray[filterIndex], 0, sizeof(RxFilterConfig_t));
 
-    sts = HAL_FDCAN_ConfigFilter(&hfdcan1, &filterConfig);
-    if(sts == HAL_OK) {
-        memset(&filterArray[filterIndex], 0, sizeof(RxFilterConfig_t));
-        if(*filterCount > 0U) {
-            (*filterCount)--;
-        }
-    }
-
-    return CAN_ApplyGlobalFilter();
+    return HAL_OK;
 }
 
 HAL_StatusTypeDef CAN_ClearAllRxFilters(void)
 {
-    uint32_t i = 0;
-    FDCAN_FilterTypeDef filterConfig;
+    if(hfdcan1.State != HAL_FDCAN_STATE_READY) {
+        return HAL_ERROR;
+    }
 
     memset(stdRxFilters, 0, sizeof(stdRxFilters));
     memset(extRxFilters, 0, sizeof(extRxFilters));
-    stdFilterCount = 0U;
-    extFilterCount = 0U;
 
-    for(i = 0; i < RX_FILTER_MAX_STANDARD; i++) {
-        memset(&filterConfig, 0, sizeof(filterConfig));
-        filterConfig.IdType = FDCAN_STANDARD_ID;
-        filterConfig.FilterIndex = (uint32_t)i;
-        filterConfig.FilterType = FDCAN_FILTER_MASK;
-        filterConfig.FilterConfig = FDCAN_FILTER_DISABLE;
-        filterConfig.FilterID1 = 0U;
-        filterConfig.FilterID2 = 0U;
-        HAL_FDCAN_ConfigFilter(&hfdcan1, &filterConfig);
-    }
-
-    for(i = 0; i < RX_FILTER_MAX_EXTENDED; i++) {
-        memset(&filterConfig, 0, sizeof(filterConfig));
-        filterConfig.IdType = FDCAN_EXTENDED_ID;
-        filterConfig.FilterIndex = (uint32_t)i;
-        filterConfig.FilterType = FDCAN_FILTER_MASK;
-        filterConfig.FilterConfig = FDCAN_FILTER_DISABLE;
-        filterConfig.FilterID1 = 0U;
-        filterConfig.FilterID2 = 0U;
-        HAL_FDCAN_ConfigFilter(&hfdcan1, &filterConfig);
-    }
-
-    return CAN_ApplyGlobalFilter();
+    return HAL_OK;
 }
 
 uint8_t CAN_GetRxFilterCount(uint8_t idType)
 {
     if(idType == RX_FILTER_ID_STANDARD) {
-        return stdFilterCount;
+        return CAN_CountEnabledFilters(stdRxFilters, RX_FILTER_MAX_STANDARD);
     }
     if(idType == RX_FILTER_ID_EXTENDED) {
-        return extFilterCount;
+        return CAN_CountEnabledFilters(extRxFilters, RX_FILTER_MAX_EXTENDED);
     }
     return 0U;
+}
+
+HAL_StatusTypeDef CAN_GetRxFilterInfo(uint8_t filterIndex, uint8_t idType, RxFilterConfig_t * filterInfo)
+{
+    uint32_t maxFilterCount = 0;
+    RxFilterConfig_t *filterArray = (RxFilterConfig_t *)0;
+
+    if(filterInfo == (RxFilterConfig_t *)0) {
+        return HAL_ERROR;
+    }
+
+    if((idType != RX_FILTER_ID_STANDARD) && (idType != RX_FILTER_ID_EXTENDED)) {
+        return HAL_ERROR;
+    }
+
+    if(idType == RX_FILTER_ID_STANDARD) {
+        maxFilterCount = RX_FILTER_MAX_STANDARD;
+        filterArray = stdRxFilters;
+    } else {
+        maxFilterCount = RX_FILTER_MAX_EXTENDED;
+        filterArray = extRxFilters;
+    }
+
+    if(filterIndex >= maxFilterCount) {
+        return HAL_ERROR;
+    }
+
+    memcpy(filterInfo, &filterArray[filterIndex], sizeof(RxFilterConfig_t));
+
+    return HAL_OK;
 }
 
 static bool CAN_txQ_full()
