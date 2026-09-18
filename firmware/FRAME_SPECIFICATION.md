@@ -284,12 +284,12 @@ Payload[1]: Status (0 = success)
 
 ### Command: Set RX Filter (0x15)
 
-Stores one FDCAN receive filter entry in firmware state. The STM32G431C8 has 128 standard-ID slots and 64 extended-ID slots, and the stored filter set is replayed into FDCAN filter RAM during `CMD_CAN_START`.
+Stores one FDCAN receive filter entry in firmware state. The STM32G431C8 HAL-valid FDCAN filter banks are 28 standard-ID slots and 8 extended-ID slots, and the stored filter set is replayed into FDCAN filter RAM during `CMD_CAN_START`.
 
 **Request:**
 ```
 Payload[0]: 0x15 (CMD_SET_RX_FILTER)
-Payload[1]: filterIndex (0..127 for standard or 0..63 for extended)
+Payload[1]: filterIndex (0..27 for standard or 0..7 for extended)
 Payload[2]: enabled (0 = disable/clear, 1 = enable)
 Payload[3]: idType (0 = standard ID, 1 = extended ID)
 Payload[4]: mode (1 = ID-match, 2 = mask-match)
@@ -325,7 +325,7 @@ Clears one stored RX filter entry or clears all stored RX filters.
 **Request:**
 ```
 Payload[0]: 0x16 (CMD_CLEAR_RX_FILTER)
-Payload[1]: filterIndex (0..127 standard or 0..63 extended, or 0xFF to clear all)
+Payload[1]: filterIndex (0..27 standard or 0..7 extended, or 0xFF to clear all)
 Payload[2]: idType (0 = standard ID, 1 = extended ID)
 ```
 
@@ -371,7 +371,7 @@ Returns the stored configuration for one RX filter slot.
 **Request:**
 ```
 Payload[0]: 0x18 (CMD_GET_RX_FILTER_INFO)
-Payload[1]: filterIndex (0..127 for standard or 0..63 for extended)
+Payload[1]: filterIndex (0..27 for standard or 0..7 for extended)
 Payload[2]: idType (0 = standard ID, 1 = extended ID)
 ```
 

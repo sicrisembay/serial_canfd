@@ -369,7 +369,20 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
             mask |= ((uint32_t)rxFrameBuffer[(index + PAYLOAD_OFFSET + 12) % FRAME_RX_SIZE] << 16);
             mask |= ((uint32_t)rxFrameBuffer[(index + PAYLOAD_OFFSET + 13) % FRAME_RX_SIZE] << 24);
 
-            if((enabled == 0U) || (idType > RX_FILTER_ID_EXTENDED) || (mode == RX_FILTER_MODE_DISABLE)) {
+            if((idType > RX_FILTER_ID_EXTENDED) ||
+               ((idType == RX_FILTER_ID_STANDARD) && (filterIndex >= RX_FILTER_MAX_STANDARD)) ||
+               ((idType == RX_FILTER_ID_EXTENDED) && (filterIndex >= RX_FILTER_MAX_EXTENDED))) {
+                sts = HAL_ERROR;
+
+                respLen = 0;
+                responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_SET_RX_FILTER;
+                responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)sts;
+                respLen += FRAME_OVERHEAD;
+                PARSER_SendFrame(responseBuffer, respLen);
+                break;
+            }
+
+            if((enabled == 0U) || (mode == RX_FILTER_MODE_DISABLE)) {
                 sts = CAN_ClearRxFilter(filterIndex, idType);
                 respLen = 0;
                 responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_SET_RX_FILTER;

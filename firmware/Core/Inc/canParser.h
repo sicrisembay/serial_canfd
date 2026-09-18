@@ -9,8 +9,9 @@
 #define INC_CANPARSER_H_
 
 #define CONFIG_CANFD_DATA_SIZE      (64)
-#define RX_FILTER_MAX_STANDARD      (128U)
-#define RX_FILTER_MAX_EXTENDED      (64U)
+/* STM32G4 HAL validates these at 28 standard filters and 8 extended filters. */
+#define RX_FILTER_MAX_STANDARD      (28U)
+#define RX_FILTER_MAX_EXTENDED      (8U)
 
 #define RX_FILTER_ID_STANDARD       (0U)
 #define RX_FILTER_ID_EXTENDED       (1U)
