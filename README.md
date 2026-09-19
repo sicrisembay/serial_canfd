@@ -1,119 +1,137 @@
 # WebSerial CAN-FD Bridge
 
-A USB-to-CAN/CAN-FD bridge firmware for STM32G431C8TX microcontroller that enables communication with CAN and CAN-FD buses via a USB CDC (Virtual COM Port) interface.
+This repository contains the firmware for an STM32G431C8TX-based USB-to-CAN/CAN-FD bridge. The device presents a USB CDC virtual serial port and relays CAN traffic between a host application and the CAN bus using a compact binary frame protocol.
 
 ## Overview
 
-This project implements a bidirectional bridge between USB and CAN/CAN-FD networks. It allows host applications to send and receive CAN frames through a simple USB serial interface, making it ideal for CAN bus monitoring, diagnostics, and development.
+The firmware is designed for host-driven CAN monitoring, diagnostics, and testing. It exposes a simple serial interface over USB and supports both classic CAN and CAN-FD messages, including standard and extended identifiers, bus error reporting, hardware receive filtering, and a reset-to-DFU flow for firmware updates.
 
-### Key Features
+The code is intentionally focused on a small embedded runtime loop that:
 
-- **USB CDC Virtual COM Port** - Appears as a standard serial port on the host system
-- **CAN and CAN-FD Support** - Full support for both CAN Classic and CAN-FD frames
-- **Bit Rate Switch (BRS)** - CAN-FD frames with faster data phase transmission
-- **Extended Frame Support** - Both Standard (11-bit) and Extended (29-bit) identifiers
-- **Hardware RX Filtering** - Phase 1 support for FDCAN hardware receive filtering with standard and extended ID banks
-- **Frame Protocol** - Structured communication protocol with timestamp and sequence tracking
-- **Error Handling** - CAN error monitoring and statistics reporting
-- **Real-time Operation** - Ring buffer architecture for efficient data handling
-- **USB DFU Support** - Firmware upgrades over USB triggered via `CMD_ENTER_DFU` command, jumping to the STM32 ROM DFU bootloader
+- accepts framed USB commands
+- validates and dispatches them
+- transmits CAN/CAN-FD messages
+- forwards received messages upstream over USB
+- reports protocol and error state back to the host
 
-## Hardware
+## Features
 
-- **Microcontroller:** STM32G431C8TX
-  - ARM Cortex-M4 core with FPU
-  - 128KB Flash, 32KB SRAM
-  - FDCAN peripheral with CAN-FD support
-  - USB 2.0 Full-speed device interface
+- USB CDC virtual COM port interface
+- CAN classic and CAN-FD support
+- Standard and extended CAN IDs
+- Bit Rate Switch (BRS) support for CAN-FD
+- Hardware RX filter configuration and query support
+- CAN error statistics and protocol status notifications
+- Ring-buffered USB/CAN handling
+- DFU entry via reset into the STM32 ROM bootloader
 
-- **Peripherals Used:**
-  - FDCAN1 - CAN/CAN-FD interface
-  - USB Device (CDC class)
-  - TIM2 - Timestamping timer
+## Hardware target
 
-## Project Structure
+- MCU: STM32G431C8TX
+- Core: ARM Cortex-M4 with FPU
+- Flash: 128 KB
+- SRAM: 32 KB
+- CAN controller: FDCAN1
+- USB: USB 2.0 Full-Speed CDC device
+- Timestamp source: TIM2
 
-```
+## Repository layout
+
+```text
 webserial_canfd/
-├── firmware/                    # STM32 firmware source code
+├── AGENT.md                     # Agent operating guidance for this repo
+├── README.md                    # High-level overview and usage
+├── firmware/
+│   ├── FRAME_SPECIFICATION.md   # Authoritative binary protocol definition
+│   ├── webserial_canfd.ioc      # STM32CubeMX configuration
 │   ├── Core/
-│   │   ├── Inc/                # Header files
-│   │   │   ├── canParser.h     # CAN message handling
-│   │   │   ├── frameParser.h   # Frame protocol parser
+│   │   ├── Inc/
+│   │   │   ├── canParser.h
+│   │   │   ├── frameParser.h
 │   │   │   ├── main.h
-│   │   │   └── UTIL_ringbuf.h  # Ring buffer utilities
-│   │   └── Src/                # Source files
+│   │   │   └── UTIL_ringbuf.h
+│   │   └── Src/
 │   │       ├── canParser.c
 │   │       ├── frameParser.c
 │   │       ├── main.c
+│   │       ├── system_stm32g4xx.c
 │   │       └── UTIL_ringbuf.c
-│   ├── USB_Device/             # USB CDC implementation
+│   ├── USB_Device/
 │   │   ├── App/
 │   │   └── Target/
-│   ├── Drivers/                # STM32 HAL and CMSIS drivers
-│   ├── Middlewares/            # STM32 USB Device Library
-│   ├── FRAME_SPECIFICATION.md  # Detailed protocol documentation
-│   └── webserial_canfd.ioc    # STM32CubeMX configuration
-├── docs/                       # Additional documentation
-└── README.md                   # This file
+│   ├── Drivers/
+│   ├── Middlewares/
+│   └── Debug/
+├── docs/
+│   ├── DFU_IMPLEMENTATION.md
+│   ├── ENGINEERING_PLAN.md
+│   ├── FEATURE_ROADMAP.md
+│   └── PHASE1_CHECKLIST.md
+└── ...
 ```
 
-## Communication Protocol
+## Frame protocol summary
 
-The firmware uses a custom frame-based protocol for communication over USB. Each frame consists of:
+The device uses a framed binary protocol over USB. The protocol definition is authoritative in [firmware/FRAME_SPECIFICATION.md](firmware/FRAME_SPECIFICATION.md), and the implementation is in [firmware/Core/Src/frameParser.c](firmware/Core/Src/frameParser.c).
 
-| Field      | Size    | Description                              |
-|------------|---------|------------------------------------------|
-| TAG        | 1 byte  | Start of frame marker (0xFF)             |
-| Length     | 2 bytes | Total frame length (little-endian)       |
-| Timestamp  | 4 bytes | 10μs resolution timestamp                |
-| Packet Seq | 2 bytes | Sequential frame counter                 |
-| Payload    | N bytes | Command and data                         |
-| Checksum   | 1 byte  | Two's complement checksum                |
+Each frame includes:
 
-**Frame overhead:** 10 bytes  
-**Maximum frame size:** 1023 bytes  
-**Maximum CAN-FD data:** 64 bytes
+| Field | Offset | Size | Description |
+|---|---:|---:|---|
+| TAG | 0 | 1 byte | Start-of-frame marker (`0xFF`) |
+| Length | 1 | 2 bytes | Total frame length, little-endian |
+| Timestamp | 3 | 4 bytes | 10 µs timer value |
+| Packet Seq | 7 | 2 bytes | Frame sequence number |
+| Payload | 9 | N bytes | Command and payload data |
+| Checksum | 9 + N | 1 byte | Two's complement checksum |
 
-### Supported Commands
+Key limits:
 
-| Command | ID   | Description                           |
-|---------|------|---------------------------------------|
-| GET_DEVICE_ID | 0x00 | Query device identifier          |
-| CAN_START     | 0x01 | Start CAN controller             |
-| CAN_STOP      | 0x02 | Stop CAN controller              |
-| DEVICE_RESET  | 0x03 | Reset device                     |
-| SEND_DOWNSTREAM | 0x10 | Transmit CAN frame to bus      |
-| SEND_UPSTREAM  | 0x11 | Received CAN frame (from bus)   |
-| PROTOCOL_STATUS | 0x12 | Get protocol status            |
-| GET_CAN_STATS  | 0x13 | Query CAN error statistics      |
-| RESET_CAN_STATS | 0x14 | Clear CAN error counters       |
-| SET_RX_FILTER | 0x15 | Configure one hardware RX filter |
-| CLEAR_RX_FILTER | 0x16 | Disable one or all RX filters |
-| GET_RX_FILTER | 0x17 | Query active filter count      |
-| ENTER_DFU     | 0xF0 | Reset into USB DFU bootloader    |
+- minimum valid frame length: 10 bytes
+- maximum frame length: 1023 bytes
+- maximum CAN-FD payload: 64 bytes
 
-For detailed protocol specifications, see [FRAME_SPECIFICATION.md](firmware/FRAME_SPECIFICATION.md).
+The parser expects little-endian encoding and validates the length and checksum before processing a command.
 
-## Building the Firmware
+## Supported commands
+
+The firmware currently exposes the following command IDs, as defined in [firmware/Core/Inc/frameParser.h](firmware/Core/Inc/frameParser.h):
+
+| Command | ID | Purpose |
+|---|---:|---|
+| `CMD_GET_DEVICE_ID` | `0x00` | Read device identity and firmware version |
+| `CMD_CAN_START` | `0x01` | Start FDCAN with the selected arbitration/data bitrates |
+| `CMD_CAN_STOP` | `0x02` | Stop FDCAN |
+| `CMD_DEVICE_RESET` | `0x03` | Reset the MCU |
+| `CMD_SEND_DOWNSTREAM` | `0x10` | Transmit a CAN/CAN-FD frame to the bus |
+| `CMD_SEND_UPSTREAM` | `0x11` | Device-to-host notification for received bus traffic |
+| `CMD_PROTOCOL_STATUS` | `0x12` | Unsolicited protocol status notification |
+| `CMD_GET_CAN_STATS` | `0x13` | Request or report CAN error statistics |
+| `CMD_RESET_CAN_STATS` | `0x14` | Reset CAN error counters |
+| `CMD_SET_RX_FILTER` | `0x15` | Configure one hardware receive filter |
+| `CMD_CLEAR_RX_FILTER` | `0x16` | Disable a specific filter or clear all filters |
+| `CMD_GET_RX_FILTER_COUNT` | `0x17` | Query count of active filters |
+| `CMD_GET_RX_FILTER_INFO` | `0x18` | Query detailed filter state |
+| `CMD_ENTER_DFU` | `0xF0` | Reset into the STM32 ROM DFU bootloader |
+
+> The auto-generated `SEND_UPSTREAM` and `PROTOCOL_STATUS` frames are not host requests; they are device notifications sent when incoming traffic or bus state changes are detected.
+
+## Build and flash
 
 ### Prerequisites
 
-- **STM32CubeIDE** or **ARM GCC toolchain**
-- **STM32CubeMX** (optional, for hardware configuration)
-- **ST-LINK** programmer/debugger
+- STM32CubeIDE or an ARM GCC toolchain
+- ST-LINK debugger/programmer
+- Optional: STM32CubeMX for configuration changes
 
-### Build Steps
+### Build with STM32CubeIDE
 
-#### Using STM32CubeIDE
+1. Open STM32CubeIDE.
+2. Import the project by selecting the `firmware` directory.
+3. Build the project with `Project -> Build All`.
+4. The resulting ELF/binary is generated under the `Debug` output folder.
 
-1. Open STM32CubeIDE
-2. Import the project: `File` → `Open Projects from File System`
-3. Select the `firmware` directory
-4. Build the project: `Project` → `Build All`
-5. The output binary will be in `Debug/webserial_canfd.elf`
-
-#### Using Command Line (Make)
+### Build from the command line
 
 ```bash
 cd firmware/Debug
@@ -122,113 +140,80 @@ make all
 
 ### Flashing
 
-1. Connect ST-LINK to the STM32G431C8TX
-2. Flash using STM32CubeProgrammer or from STM32CubeIDE:
-   - `Run` → `Debug` or `Run` → `Run`
+1. Connect the STM32 board to the ST-LINK.
+2. Use STM32CubeProgrammer or STM32CubeIDE to flash the generated firmware image.
+3. Reset or run the target.
 
-## Usage
+## Quick start
 
-### Connection
+1. Program the board with the firmware.
+2. Connect the USB cable; the device enumerates as a CDC virtual serial port.
+3. Connect the CAN or CAN-FD bus to FDCAN1.
+4. Open a serial client or browser-based serial app.
+5. Send valid framed commands using the command IDs described above.
 
-1. Flash the firmware to the STM32G431 board
-2. Connect the CAN/CAN-FD bus to the FDCAN1 pins (typically PA11/PA12)
-3. Connect the USB cable to your computer
-4. The device will enumerate as a Virtual COM Port
+A common workflow is:
 
-### Communication Example
+- issue `CMD_CAN_START` with arbitration/data bitrate selections
+- send `CMD_SEND_DOWNSTREAM` frames to transmit onto the bus
+- receive `CMD_SEND_UPSTREAM` notifications for incoming traffic
+- query `CMD_GET_CAN_STATS` when error state needs checking
 
-To send a standard CAN frame (ID=0x123) with 2 data bytes:
+## CAN configuration notes
 
+The runtime configuration is generated from the FDCAN setup in [firmware/Core/Src/main.c](firmware/Core/Src/main.c) and the hardware project file [firmware/webserial_canfd.ioc](firmware/webserial_canfd.ioc).
+
+The project currently supports:
+
+- nominal bitrate selection for CAN arbitration phase
+- data bitrate selection for CAN-FD data phase
+- standard or extended hardware receive filters
+- filtered receive logic at the FDCAN level
+
+The implementation keeps filter state in RAM and re-applies it when the CAN peripheral is restarted.
+
+## USB DFU bootloader support
+
+The firmware includes a DFU entry path that sets a magic word in `.noinit` RAM and performs a reset. On the next startup, the bootloader check in [firmware/Core/Src/main.c](firmware/Core/Src/main.c) detects the magic value and jumps into the STM32 ROM bootloader.
+
+This flow is documented in [docs/DFU_IMPLEMENTATION.md](docs/DFU_IMPLEMENTATION.md).
+
+## Development notes
+
+The runtime loop is intentionally simple and polling-oriented:
+
+```text
+main loop:
+  CDC_ProcessTx()
+  PARSER_Process()
+  CANTX_Process()
+  CANRX_Process()
+  CANErr_Process()
 ```
-Frame structure:
-[TAG] [LEN_L] [LEN_H] [TS0-3] [SEQ0-1] [CMD] [TYPE] [ID0-3] [DLC] [DATA...] [CHKSUM]
-0xFF  0x11    0x00    ...     ...      0x10  0x00   0x23... 0x02  0x11 0x22  [calc]
-```
 
-### Host Integration
+The main implementation points are:
 
-The USB CDC interface can be accessed using standard serial port libraries:
-- **Python:** `pyserial`
-- **JavaScript:** `Web Serial API` (browser-based)
-- **C/C++:** `libserial`, platform-specific APIs
-- **Any language:** Standard COM port/tty device access
+- [firmware/Core/Src/main.c](firmware/Core/Src/main.c) — startup, clock config, USB init, runtime loop, DFU entry
+- [firmware/Core/Src/frameParser.c](firmware/Core/Src/frameParser.c) — frame receive parsing, command dispatch, response generation
+- [firmware/Core/Src/canParser.c](firmware/Core/Src/canParser.c) — CAN transmission, reception, error handling, and filter logic
+- [firmware/Core/Inc/frameParser.h](firmware/Core/Inc/frameParser.h) — core protocol constants and command IDs
+- [firmware/Core/Inc/canParser.h](firmware/Core/Inc/canParser.h) — CAN and RX filter API definitions
 
-## CAN Bus Configuration
+## Documentation
 
-CAN timing and configuration parameters are set in [webserial_canfd.ioc](firmware/webserial_canfd.ioc) and can be modified using STM32CubeMX:
+Relevant documents in this repository:
 
-- **Nominal Bit Rate:** Configurable (typically 500 kbps for CAN, 1 Mbps for CAN-FD)
-- **Data Bit Rate:** Configurable for CAN-FD (typically 2-5 Mbps)
-- **Sample Point:** Adjustable
-- **Hardware Filters:** Phase 1 supports FDCAN hardware receive filtering for standard and extended IDs
-- **Filter Capacity:** STM32G431C8 provides 128 standard-ID filter elements and 64 extended-ID filter elements
+- [firmware/FRAME_SPECIFICATION.md](firmware/FRAME_SPECIFICATION.md)
+- [docs/DFU_IMPLEMENTATION.md](docs/DFU_IMPLEMENTATION.md)
+- [docs/ENGINEERING_PLAN.md](docs/ENGINEERING_PLAN.md)
+- [docs/FEATURE_ROADMAP.md](docs/FEATURE_ROADMAP.md)
 
-### RX Filter API
+## Licensing and contribution
 
-The firmware exposes hardware RX filter configuration through the protocol and helper functions:
+This project includes STMicroelectronics software components under their licenses. See the source files and vendor directories for their respective notices.
 
-- `SET_RX_FILTER` configures one filter slot with ID or mask mode
-- `CLEAR_RX_FILTER` disables a single slot or clears every slot
-- `GET_RX_FILTER` reports the number of active filters for a selected ID type
-
-This is implemented directly in the FDCAN filter RAM and is intended for host-side filtering at the protocol layer.
+Contributions are welcome, but protocol changes should be documented in [firmware/FRAME_SPECIFICATION.md](firmware/FRAME_SPECIFICATION.md) and kept consistent with the implementation in the firmware code.
 
 ## Note on BOOT configuration
-In MKS CANable v2.0, BOOT0 and CAN_RX share the same pin45.  To properly debug the firmware using SWD JTAG, nBOOT0 (bit27 in FLASH_OPTR) should be set to 1 and nSWBOOT0 (bit26 in FLASH_OPTR) should be set to 0.
 
-## Error Handling
-
-The firmware tracks CAN bus errors and maintains statistics:
-- **TX Error Counter** - Transmission errors
-- **RX Error Counter** - Reception errors  
-- **Passive Error Counter** - Error passive state occurrences
-
-Error statistics can be queried using the `GET_CAN_STATS` command.
-
-## Development
-
-### Architecture
-
-The firmware uses a modular polling-based architecture:
-
-```
-main loop:
-  ├─ CDC_ProcessTx()    - USB transmission
-  ├─ PARSER_Process()   - Frame parsing and command dispatch
-  ├─ CANTX_Process()    - CAN transmission queue
-  ├─ CANRX_Process()    - CAN reception and forwarding
-  ├─ CANErr_Process()   - Error monitoring
-  └─ RX filter helpers  - Hardware FDCAN receive filter programming
-```
-
-### Key Components
-
-- **frameParser.c** - Implements the frame protocol parser and command dispatcher
-- **canParser.c** - Handles CAN message transmission, reception, and error management
-- **UTIL_ringbuf.c** - Efficient circular buffer for USB/CAN data queuing
-- **usbd_cdc_if.c** - USB CDC interface implementation
-
-## License
-
-This project uses STMicroelectronics software components that are licensed under their respective licenses. See individual source files for license information.
-
-The STM32 HAL drivers and USB middleware are provided by STMicroelectronics under permissive licenses.
-
-## Author
-
-Created by Sicris, February 2026
-
-## Contributing
-
-Contributions are welcome! Please ensure:
-- Code follows the existing style
-- Changes are tested on hardware
-- Documentation is updated accordingly
-
-## Related Projects
-
-This firmware is designed to work with WebSerial-based host applications that can communicate directly with USB CDC devices from a web browser using the Web Serial API.
-
-## Support
-
-For issues, questions, or feature requests, please open an issue in the project repository.
+On some boards, the BOOT0 pin shares routing with a CAN signal. In those cases, the board may require the flash option bits to be configured so that SWD/JTAG debugging remains usable while the application boots normally. This is a board-specific hardware setup concern rather than a firmware feature.

@@ -48,6 +48,7 @@ void CANErr_Process(void);
 void CAN_stat_send(void);
 CanStat_t CAN_get_stats(void);
 void CAN_reset_stats(void);
+HAL_StatusTypeDef CAN_FilterStructInit(void);
 HAL_StatusTypeDef CAN_ApplyAllFilter(void);
 HAL_StatusTypeDef CAN_SetRxFilter(uint8_t filterIndex,
                                  uint8_t idType,

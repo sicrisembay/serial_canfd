@@ -139,7 +139,7 @@ int main(void)
   MX_USB_Device_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-
+  CAN_FilterStructInit();
   /* USER CODE END 2 */
 
   /* Infinite loop */
