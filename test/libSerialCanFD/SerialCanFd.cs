@@ -250,6 +250,92 @@ namespace libSerialCanFD
             SendPayload(payload);
         }
 
+        public void SetCanRxFilter(byte filterIndex,bool enable, FrameFormat idType,
+                        byte mode, UInt32 id, UInt32 mask)
+        {
+            if(idType == FrameFormat.STANDARD)
+            {
+                if(filterIndex >= ProtocolParser.STD_ID_FILTER_COUNT)
+                {
+                    throw new ArgumentOutOfRangeException("Filter index must be less than " + ProtocolParser.STD_ID_FILTER_COUNT + " for standard IDs.");
+                }
+                if(id > 0x7FF || mask > 0x7FF)
+                {
+                    throw new ArgumentOutOfRangeException("Standard ID and mask must be 11 bits or less.");
+                }
+            } else if(idType == FrameFormat.EXTENDED)
+            {
+                if(filterIndex >= ProtocolParser.EXT_ID_FILTER_COUNT)
+                {
+                    throw new ArgumentOutOfRangeException("Filter index must be less than " + ProtocolParser.EXT_ID_FILTER_COUNT + " for extended IDs.");
+                }
+                if(id > 0x1FFFFFFF || mask > 0x1FFFFFFF)
+                {
+                    throw new ArgumentOutOfRangeException("Extended ID and mask must be 29 bits or less.");
+                }
+            } else
+            {
+                throw new ArgumentException("Invalid ID type specified.", nameof(idType));
+            }
+
+            if(mode != 1 && mode != 2)
+            {
+                throw new ArgumentOutOfRangeException("Mode must be either 1 (ID-match) or 2 (Mask-match).");
+            }
+
+            byte[] payload = new byte[14];
+            payload[0] = (byte)CommandIdentifier.CMD_SET_RX_FILTER;
+            payload[1] = filterIndex;
+            payload[2] = enable ? (byte)0x01 : (byte)0x00;
+            payload[3] = (idType == FrameFormat.STANDARD) ? (byte)0x00 : (byte)0x01;
+            payload[4] = mode;
+            payload[5] = 0; // Reserved
+            payload[6] = (byte)(id & 0xFF);
+            payload[7] = (byte)((id >> 8) & 0xFF);
+            payload[8] = (byte)((id >> 16) & 0xFF);
+            payload[9] = (byte)((id >> 24) & 0xFF);
+            payload[10] = (byte)(mask & 0xFF);
+            payload[11] = (byte)((mask >> 8) & 0xFF);
+            payload[12] = (byte)((mask >> 16) & 0xFF);
+            payload[13] = (byte)((mask >> 24) & 0xFF);
+            SendPayload(payload);
+        }
+
+        public void GetActiveCanRxFilters(FrameFormat frameFormat)
+        {
+            byte[] payload = new byte[2];
+            payload[0] = (byte)CommandIdentifier.CMD_GET_ACTIVE_RX_FILTER_COUNT;
+            payload[1] = (frameFormat == FrameFormat.STANDARD) ? (byte)0x00 : (byte)0x01;
+            SendPayload(payload);
+        }
+
+        public void GetCanRxFilterInfo(FrameFormat frameFormat, byte filterIndex)
+        {
+            if(frameFormat == FrameFormat.STANDARD && filterIndex >= ProtocolParser.STD_ID_FILTER_COUNT)
+            {
+                throw new ArgumentOutOfRangeException("Filter index must be less than 28 for standard IDs.");
+            }
+            if(frameFormat == FrameFormat.EXTENDED && filterIndex >= ProtocolParser.EXT_ID_FILTER_COUNT)
+            {
+                throw new ArgumentOutOfRangeException("Filter index must be less than 8 for extended IDs.");
+            }
+
+            byte[] payload = new byte[3];
+            payload[0] = (byte)CommandIdentifier.CMD_GET_RX_FILTER_INFO;
+            payload[1] = filterIndex;
+            payload[2] = (frameFormat == FrameFormat.STANDARD) ? (byte)0x00 : (byte)0x01;
+
+            SendPayload(payload);
+        }
+
+
+        public void EnterDFU()
+        {
+            byte[] payload = new byte[1];
+            payload[0] = (byte)CommandIdentifier.CMD_ENTER_DFU;
+            SendPayload(payload);
+        }
+
         private void SendPayload(byte[] payload)
         {
             if (_serialPort is null || !_serialPort.IsOpen)

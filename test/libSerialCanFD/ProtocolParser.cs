@@ -17,8 +17,33 @@ namespace libSerialCanFD
         CMD_RESET_CAN_STATS = 0x14,
         CMD_SET_RX_FILTER = 0x15,
         CMD_CLEAR_RX_FILTER = 0x16,
-        CMD_GET_RX_FILTER = 0x17,
+        CMD_GET_ACTIVE_RX_FILTER_COUNT = 0x17,
+        CMD_GET_RX_FILTER_INFO = 0x18,
         CMD_ENTER_DFU = 0xF0
+    }
+
+    public enum CanType
+    {
+        CAN_CC = 0x00,
+        CAN_FD = 0x01
+    }
+
+    public enum BrsMode
+    {
+        BRS_ON = 0x00,
+        BRS_OFF = 0x01
+    }
+
+    public enum FrameFormat
+    {
+        STANDARD = 0x00, // 11-bit identifier
+        EXTENDED = 0x01  // 29-bit identifier
+    }
+
+    public enum FilterMode : byte
+    {
+        ID_MATCH = 0x01,
+        MASK_MATCH = 0x02
     }
 
     public class GetDeviceIdArgs: EventArgs
@@ -61,24 +86,6 @@ namespace libSerialCanFD
         {
             Success = success;
         }
-    }
-
-    public enum CanType
-    {
-        CAN_CC = 0x00,
-        CAN_FD = 0x01
-    }
-
-    public enum BrsMode
-    {
-        BRS_ON = 0x00,
-        BRS_OFF = 0x01
-    }
-
-    public enum FrameFormat
-    {
-        STANDARD = 0x00, // 11-bit identifier
-        EXTENDED = 0x01  // 29-bit identifier
     }
 
     public class SendUpstreamArgs: EventArgs
@@ -172,8 +179,44 @@ namespace libSerialCanFD
             Success = success;
         }
     }
+
+    public class GetActiveRxFilterCountArgs : EventArgs
+    {
+        public FrameFormat FrameFormat { get; private set; }
+        public byte ActiveRxFilterCount { get; private set; }
+        public GetActiveRxFilterCountArgs(FrameFormat frameFormat, byte activeRxFilterCount)
+        {
+            FrameFormat = frameFormat;
+            ActiveRxFilterCount = activeRxFilterCount;
+        }
+    }
+
+    public class GetRxFilterInfoArgs : EventArgs
+    {
+        public bool Success { get; private set; }
+        public byte FilterIndex { get; private set; }
+        public bool Enable { get; private set; }    
+        public FrameFormat IdType { get; private set; }
+        public FilterMode Mode { get; private set; }
+        public UInt32 IdValue { get; private set; }
+        public UInt32 MaskValue { get; private set; }
+        public GetRxFilterInfoArgs(bool success, byte filterIndex, bool enable, FrameFormat idType, FilterMode mode, UInt32 idValue, UInt32 maskValue)
+        {
+            Success = success;
+            FilterIndex = filterIndex;
+            Enable = enable;
+            IdType = idType;
+            Mode = mode;
+            IdValue = idValue;
+            MaskValue = maskValue;
+        }
+    }
+
     public class ProtocolParser
     {
+        public const byte STD_ID_FILTER_COUNT = 28;
+        public const byte EXT_ID_FILTER_COUNT = 8;
+
         public event EventHandler<GetDeviceIdArgs>? GetDeviceIdReceived;
         public event EventHandler<CanStartArgs>? CanStartReceived;
         public event EventHandler<CanStopArgs>? CanStopReceived;
@@ -184,7 +227,8 @@ namespace libSerialCanFD
         public event EventHandler<ResetCanStatsArgs>? ResetCanStatsReceived;
         public event EventHandler<SetRxFilterArgs>? SetRxFilterReceived;
         public event EventHandler<ClearRxFilterArgs>? ClearRxFilterReceived;
-
+        public event EventHandler<GetActiveRxFilterCountArgs>? GetActiveRxFilterCountReceived;
+        public event EventHandler<GetRxFilterInfoArgs>? GetRxFilterInfoReceived;
         public ProtocolParser()
         {
 
@@ -371,9 +415,32 @@ namespace libSerialCanFD
                     System.Diagnostics.Debug.WriteLine($"CMD_CLEAR_RX_FILTER received: Success={payload[1] == 0x00}");
                     ClearRxFilterReceived?.Invoke(this, new ClearRxFilterArgs(payload[1] == 0x00));
                     break;
-                case CommandIdentifier.CMD_GET_RX_FILTER:
-                    // Handle CMD_GET_RX_FILTER
-                    /// TODO
+                case CommandIdentifier.CMD_GET_ACTIVE_RX_FILTER_COUNT:
+                    if(!HasRequiredPayloadLength(payload, 4, command))
+                    {
+                        return;
+                    }
+                    // Handle CMD_GET_ACTIVE_RX_FILTER_COUNT
+                    byte activeRxFilterCount = payload[2];
+                    FrameFormat rxFilterFrameFormat = (payload[1] == 0x00) ? FrameFormat.STANDARD : FrameFormat.EXTENDED;
+                    System.Diagnostics.Debug.WriteLine($"CMD_GET_ACTIVE_RX_FILTER_COUNT received: FrameFormat={rxFilterFrameFormat}, ActiveRxFilterCount={activeRxFilterCount}");
+                    GetActiveRxFilterCountReceived?.Invoke(this, new GetActiveRxFilterCountArgs(rxFilterFrameFormat, activeRxFilterCount));
+                    break;
+                case CommandIdentifier.CMD_GET_RX_FILTER_INFO:
+                    if(!HasRequiredPayloadLength(payload, 14, command))
+                    {
+                        return;
+                    }
+                    // Handle CMD_GET_RX_FILTER_INFO
+                    bool success = payload[1] == 0x00;
+                    byte filterIndex = payload[2];
+                    bool enable = payload[3] != 0x00;
+                    FrameFormat idType = (payload[4] == 0x00) ? FrameFormat.STANDARD : FrameFormat.EXTENDED;
+                    FilterMode mode = (payload[5] == 0x01) ? FilterMode.ID_MATCH : FilterMode.MASK_MATCH;
+                    UInt32 idValue = BitConverter.ToUInt32(payload, 6);
+                    UInt32 maskValue = BitConverter.ToUInt32(payload, 10);
+                    System.Diagnostics.Debug.WriteLine($"CMD_GET_RX_FILTER_INFO received: Success={success}, FilterIndex={filterIndex}, Enable={enable}, IdType={idType}, Mode={mode}, IdValue={idValue}, MaskValue={maskValue}");
+                    GetRxFilterInfoReceived?.Invoke(this, new GetRxFilterInfoArgs(success, filterIndex, enable, idType, mode, idValue, maskValue));
                     break;
                 case CommandIdentifier.CMD_ENTER_DFU:
                     // Handle CMD_ENTER_DFU

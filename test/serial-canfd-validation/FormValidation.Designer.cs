@@ -42,6 +42,9 @@
             label2 = new Label();
             label3 = new Label();
             groupBox1 = new GroupBox();
+            button_FilterSettings = new Button();
+            button_EnterDFU = new Button();
+            button_ResetDevice = new Button();
             groupBox_SendFrame = new GroupBox();
             button_SendFrame = new Button();
             textBox_FrameData = new TextBox();
@@ -58,6 +61,7 @@
             label_DataLastErrorCode = new Label();
             label_LastErrorCode = new Label();
             groupBox_CanStatistics = new GroupBox();
+            button_ResetCanStats = new Button();
             label_MaxRxEc = new Label();
             label_RxBuffOverflow = new Label();
             label_UpstreamLossCount = new Label();
@@ -67,7 +71,6 @@
             label_RxEC = new Label();
             label_TxEc = new Label();
             timer_UpdateCanStats = new System.Windows.Forms.Timer(components);
-            button_ResetCanStats = new Button();
             groupBox1.SuspendLayout();
             groupBox_SendFrame.SuspendLayout();
             groupBox_ReceivedFrames.SuspendLayout();
@@ -87,7 +90,7 @@
             // 
             button_ListPortNames.Location = new Point(326, 43);
             button_ListPortNames.Name = "button_ListPortNames";
-            button_ListPortNames.Size = new Size(112, 34);
+            button_ListPortNames.Size = new Size(119, 34);
             button_ListPortNames.TabIndex = 1;
             button_ListPortNames.Text = "Refresh";
             button_ListPortNames.UseVisualStyleBackColor = true;
@@ -97,7 +100,7 @@
             // 
             button_Connect.Location = new Point(326, 83);
             button_Connect.Name = "button_Connect";
-            button_Connect.Size = new Size(112, 34);
+            button_Connect.Size = new Size(119, 34);
             button_Connect.TabIndex = 2;
             button_Connect.Text = "Connect";
             button_Connect.UseVisualStyleBackColor = true;
@@ -123,7 +126,7 @@
             // 
             checkBox_CanFd.AutoSize = true;
             checkBox_CanFd.Enabled = false;
-            checkBox_CanFd.Location = new Point(252, 41);
+            checkBox_CanFd.Location = new Point(186, 41);
             checkBox_CanFd.Name = "checkBox_CanFd";
             checkBox_CanFd.Size = new Size(60, 29);
             checkBox_CanFd.TabIndex = 4;
@@ -135,7 +138,7 @@
             // 
             checkBox_BitRateSwitch.AutoSize = true;
             checkBox_BitRateSwitch.Enabled = false;
-            checkBox_BitRateSwitch.Location = new Point(318, 43);
+            checkBox_BitRateSwitch.Location = new Point(252, 43);
             checkBox_BitRateSwitch.Name = "checkBox_BitRateSwitch";
             checkBox_BitRateSwitch.Size = new Size(69, 29);
             checkBox_BitRateSwitch.TabIndex = 5;
@@ -146,7 +149,7 @@
             // 
             checkBox_extendedIdentifier.AutoSize = true;
             checkBox_extendedIdentifier.Enabled = false;
-            checkBox_extendedIdentifier.Location = new Point(393, 41);
+            checkBox_extendedIdentifier.Location = new Point(327, 41);
             checkBox_extendedIdentifier.Name = "checkBox_extendedIdentifier";
             checkBox_extendedIdentifier.Size = new Size(77, 29);
             checkBox_extendedIdentifier.TabIndex = 6;
@@ -158,7 +161,7 @@
             button_busStart.Enabled = false;
             button_busStart.Location = new Point(326, 122);
             button_busStart.Name = "button_busStart";
-            button_busStart.Size = new Size(112, 34);
+            button_busStart.Size = new Size(119, 34);
             button_busStart.TabIndex = 7;
             button_busStart.Text = "Start";
             button_busStart.UseVisualStyleBackColor = true;
@@ -193,6 +196,9 @@
             // 
             // groupBox1
             // 
+            groupBox1.Controls.Add(button_FilterSettings);
+            groupBox1.Controls.Add(button_EnterDFU);
+            groupBox1.Controls.Add(button_ResetDevice);
             groupBox1.Controls.Add(comboBox_BitRate);
             groupBox1.Controls.Add(label3);
             groupBox1.Controls.Add(button_busStart);
@@ -204,10 +210,40 @@
             groupBox1.Controls.Add(comboBox_DataBitRate);
             groupBox1.Location = new Point(12, 23);
             groupBox1.Name = "groupBox1";
-            groupBox1.Size = new Size(459, 180);
+            groupBox1.Size = new Size(629, 180);
             groupBox1.TabIndex = 9;
             groupBox1.TabStop = false;
             groupBox1.Text = "Device Communication";
+            // 
+            // button_FilterSettings
+            // 
+            button_FilterSettings.Location = new Point(462, 121);
+            button_FilterSettings.Name = "button_FilterSettings";
+            button_FilterSettings.Size = new Size(119, 34);
+            button_FilterSettings.TabIndex = 11;
+            button_FilterSettings.Text = "Filter";
+            button_FilterSettings.UseVisualStyleBackColor = true;
+            button_FilterSettings.Click += button_FilterSettings_Click;
+            // 
+            // button_EnterDFU
+            // 
+            button_EnterDFU.Location = new Point(462, 83);
+            button_EnterDFU.Name = "button_EnterDFU";
+            button_EnterDFU.Size = new Size(119, 34);
+            button_EnterDFU.TabIndex = 10;
+            button_EnterDFU.Text = "Enter DFU";
+            button_EnterDFU.UseVisualStyleBackColor = true;
+            button_EnterDFU.Click += button_EnterDFU_Click;
+            // 
+            // button_ResetDevice
+            // 
+            button_ResetDevice.Location = new Point(462, 44);
+            button_ResetDevice.Name = "button_ResetDevice";
+            button_ResetDevice.Size = new Size(119, 34);
+            button_ResetDevice.TabIndex = 9;
+            button_ResetDevice.Text = "Reset Device";
+            button_ResetDevice.UseVisualStyleBackColor = true;
+            button_ResetDevice.Click += button_ResetDevice_Click;
             // 
             // groupBox_SendFrame
             // 
@@ -221,16 +257,16 @@
             groupBox_SendFrame.Controls.Add(textBox_FrameId);
             groupBox_SendFrame.Controls.Add(label_FrameId);
             groupBox_SendFrame.Enabled = false;
-            groupBox_SendFrame.Location = new Point(477, 23);
+            groupBox_SendFrame.Location = new Point(647, 23);
             groupBox_SendFrame.Name = "groupBox_SendFrame";
-            groupBox_SendFrame.Size = new Size(599, 180);
+            groupBox_SendFrame.Size = new Size(519, 180);
             groupBox_SendFrame.TabIndex = 10;
             groupBox_SendFrame.TabStop = false;
             groupBox_SendFrame.Text = "Send Frame";
             // 
             // button_SendFrame
             // 
-            button_SendFrame.Location = new Point(491, 30);
+            button_SendFrame.Location = new Point(425, 30);
             button_SendFrame.Name = "button_SendFrame";
             button_SendFrame.Size = new Size(79, 94);
             button_SendFrame.TabIndex = 5;
@@ -240,7 +276,7 @@
             // 
             // textBox_FrameData
             // 
-            textBox_FrameData.Location = new Point(138, 77);
+            textBox_FrameData.Location = new Point(72, 77);
             textBox_FrameData.Name = "textBox_FrameData";
             textBox_FrameData.Size = new Size(332, 31);
             textBox_FrameData.TabIndex = 3;
@@ -248,7 +284,7 @@
             // label_FrameDataHint
             // 
             label_FrameDataHint.AutoSize = true;
-            label_FrameDataHint.Location = new Point(138, 111);
+            label_FrameDataHint.Location = new Point(72, 111);
             label_FrameDataHint.Name = "label_FrameDataHint";
             label_FrameDataHint.Size = new Size(199, 25);
             label_FrameDataHint.TabIndex = 4;
@@ -257,7 +293,7 @@
             // label_FrameData
             // 
             label_FrameData.AutoSize = true;
-            label_FrameData.Location = new Point(76, 80);
+            label_FrameData.Location = new Point(10, 80);
             label_FrameData.Name = "label_FrameData";
             label_FrameData.Size = new Size(53, 25);
             label_FrameData.TabIndex = 2;
@@ -265,7 +301,7 @@
             // 
             // textBox_FrameId
             // 
-            textBox_FrameId.Location = new Point(138, 39);
+            textBox_FrameId.Location = new Point(72, 39);
             textBox_FrameId.Name = "textBox_FrameId";
             textBox_FrameId.Size = new Size(96, 31);
             textBox_FrameId.TabIndex = 1;
@@ -273,7 +309,7 @@
             // label_FrameId
             // 
             label_FrameId.AutoSize = true;
-            label_FrameId.Location = new Point(94, 42);
+            label_FrameId.Location = new Point(28, 42);
             label_FrameId.Name = "label_FrameId";
             label_FrameId.Size = new Size(34, 25);
             label_FrameId.TabIndex = 0;
@@ -285,7 +321,7 @@
             groupBox_ReceivedFrames.Controls.Add(textBox_ReceivedFrames);
             groupBox_ReceivedFrames.Location = new Point(12, 333);
             groupBox_ReceivedFrames.Name = "groupBox_ReceivedFrames";
-            groupBox_ReceivedFrames.Size = new Size(1157, 225);
+            groupBox_ReceivedFrames.Size = new Size(1157, 401);
             groupBox_ReceivedFrames.TabIndex = 11;
             groupBox_ReceivedFrames.TabStop = false;
             groupBox_ReceivedFrames.Text = "Received Frames";
@@ -299,7 +335,7 @@
             textBox_ReceivedFrames.Name = "textBox_ReceivedFrames";
             textBox_ReceivedFrames.ReadOnly = true;
             textBox_ReceivedFrames.ScrollBars = ScrollBars.Vertical;
-            textBox_ReceivedFrames.Size = new Size(1151, 195);
+            textBox_ReceivedFrames.Size = new Size(1151, 371);
             textBox_ReceivedFrames.TabIndex = 0;
             // 
             // groupBox_ProtocolStatus
@@ -379,6 +415,16 @@
             groupBox_CanStatistics.TabStop = false;
             groupBox_CanStatistics.Text = "CAN Statistics";
             // 
+            // button_ResetCanStats
+            // 
+            button_ResetCanStats.Location = new Point(509, 27);
+            button_ResetCanStats.Name = "button_ResetCanStats";
+            button_ResetCanStats.Size = new Size(98, 66);
+            button_ResetCanStats.TabIndex = 1;
+            button_ResetCanStats.Text = "Reset";
+            button_ResetCanStats.UseVisualStyleBackColor = true;
+            button_ResetCanStats.Click += button_ResetCanStats_Click;
+            // 
             // label_MaxRxEc
             // 
             label_MaxRxEc.AutoSize = true;
@@ -456,21 +502,11 @@
             timer_UpdateCanStats.Interval = 1000;
             timer_UpdateCanStats.Tick += timer_UpdateCanStats_Tick;
             // 
-            // button_ResetCanStats
-            // 
-            button_ResetCanStats.Location = new Point(509, 27);
-            button_ResetCanStats.Name = "button_ResetCanStats";
-            button_ResetCanStats.Size = new Size(98, 66);
-            button_ResetCanStats.TabIndex = 1;
-            button_ResetCanStats.Text = "Reset";
-            button_ResetCanStats.UseVisualStyleBackColor = true;
-            button_ResetCanStats.Click += button_ResetCanStats_Click;
-            // 
             // FormValidation
             // 
             AutoScaleDimensions = new SizeF(10F, 25F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(1181, 570);
+            ClientSize = new Size(1181, 746);
             Controls.Add(groupBox_CanStatistics);
             Controls.Add(groupBox_ProtocolStatus);
             Controls.Add(groupBox_ReceivedFrames);
@@ -532,5 +568,8 @@
         private Label label_RxBuffOverflow;
         private System.Windows.Forms.Timer timer_UpdateCanStats;
         private Button button_ResetCanStats;
+        private Button button_ResetDevice;
+        private Button button_EnterDFU;
+        private Button button_FilterSettings;
     }
 }
