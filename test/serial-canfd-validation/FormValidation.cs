@@ -90,7 +90,6 @@ namespace serial_canfd_validation
             }
 
             timer_UpdateCanStats.Interval = 1000; // 1 second
-            timer_UpdateCanStats.Enabled = isConnected;
 
             UpdateSendFrameControls();
         }
@@ -259,6 +258,7 @@ namespace serial_canfd_validation
                     }
                 } else
                 {
+                    timer_UpdateCanStats.Enabled = false;
                     await Task.Run(_serialCanFd.Close);
                     EnableControls(false);
                     button_Connect.Text = "Connect";
@@ -268,6 +268,7 @@ namespace serial_canfd_validation
             } finally
             {
                 button_Connect.Enabled = true;
+                timer_UpdateCanStats.Enabled = false;
             }
         }
 
@@ -278,8 +279,11 @@ namespace serial_canfd_validation
                 BitRate selectedBitRate = (BitRate)comboBox_BitRate.SelectedItem;
                 DataBitRate selectedDataBitRate = (DataBitRate)comboBox_DataBitRate.SelectedItem;
                 _serialCanFd.CanStart(selectedBitRate, selectedDataBitRate);
+                timer_UpdateCanStats.Enabled = true;
+
             } else
             {
+                timer_UpdateCanStats.Enabled = false;
                 _serialCanFd.CanStop();
             }
         }
