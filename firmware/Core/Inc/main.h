@@ -38,7 +38,7 @@ extern "C" {
 /* USER CODE BEGIN ET */
 #define VERSION_MAJOR   (0)
 #define VERSION_MINOR   (1)
-#define VERSION_PATCH   (0)
+#define VERSION_PATCH   (1)
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

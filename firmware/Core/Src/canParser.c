@@ -20,6 +20,287 @@ extern FDCAN_HandleTypeDef hfdcan1;
 
 static CanStat_t canStat = {0};
 static uint32_t can_tx_loss_packet_count = 0;
+static RxFilterConfig_t stdRxFilters[RX_FILTER_MAX_STANDARD];
+static RxFilterConfig_t extRxFilters[RX_FILTER_MAX_EXTENDED];
+
+static uint8_t CAN_CountEnabledFilters(const RxFilterConfig_t *filterArray, uint32_t maxFilterCount)
+{
+    uint32_t i;
+    uint8_t count = 0U;
+
+    for(i = 0; i < maxFilterCount; i++) {
+        if(filterArray[i].enabled != 0U) {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+static HAL_StatusTypeDef CAN_ApplyGlobalFilter(void)
+{
+    HAL_StatusTypeDef sts;
+
+    if((CAN_CountEnabledFilters(stdRxFilters, RX_FILTER_MAX_STANDARD) == 0U) &&
+       (CAN_CountEnabledFilters(extRxFilters, RX_FILTER_MAX_EXTENDED) == 0U)) {
+        sts = HAL_FDCAN_ConfigGlobalFilter(&hfdcan1,
+                                          FDCAN_ACCEPT_IN_RX_FIFO0,
+                                          FDCAN_ACCEPT_IN_RX_FIFO0,
+                                          FDCAN_FILTER_REMOTE,
+                                          FDCAN_FILTER_REMOTE);
+        return sts;
+    }
+
+    sts = HAL_FDCAN_ConfigGlobalFilter(&hfdcan1,
+                                      FDCAN_REJECT,
+                                      FDCAN_REJECT,
+                                      FDCAN_FILTER_REMOTE,
+                                      FDCAN_FILTER_REMOTE);
+    return sts;
+}
+
+static HAL_StatusTypeDef CAN_ProgramFilterElement(const RxFilterConfig_t *cfg)
+{
+    FDCAN_FilterTypeDef filterConfig;
+    uint32_t standardMask = 0x7FFU;
+    uint32_t extendedMask = 0x1FFFFFFFU;
+
+    if((cfg == (const RxFilterConfig_t *)0) || (cfg->enabled == 0U)) {
+        return HAL_OK;
+    }
+
+    memset(&filterConfig, 0, sizeof(filterConfig));
+    filterConfig.IdType = (cfg->idType == RX_FILTER_ID_EXTENDED) ? FDCAN_EXTENDED_ID : FDCAN_STANDARD_ID;
+    filterConfig.FilterIndex = cfg->filterIndex;
+    filterConfig.FilterConfig = ((cfg->mode == RX_FILTER_MODE_DISABLE) ? FDCAN_FILTER_DISABLE : FDCAN_FILTER_TO_RXFIFO0);
+    filterConfig.FilterType = FDCAN_FILTER_MASK;
+
+    if(cfg->mode == RX_FILTER_MODE_ID) {
+        filterConfig.FilterID1 = cfg->id;
+        filterConfig.FilterID2 = (cfg->idType == RX_FILTER_ID_EXTENDED) ? extendedMask : standardMask;
+    } else if(cfg->mode == RX_FILTER_MODE_MASK) {
+        filterConfig.FilterID1 = cfg->id;
+        filterConfig.FilterID2 = cfg->mask;
+    } else {
+        return HAL_ERROR;
+    }
+
+    if(filterConfig.IdType == FDCAN_STANDARD_ID) {
+        filterConfig.FilterID1 &= 0x7FFU;
+        filterConfig.FilterID2 &= 0x7FFU;
+    } else {
+        filterConfig.FilterID1 &= 0x1FFFFFFFU;
+        filterConfig.FilterID2 &= 0x1FFFFFFFU;
+    }
+
+    return HAL_FDCAN_ConfigFilter(&hfdcan1, &filterConfig);
+}
+
+
+HAL_StatusTypeDef CAN_FilterStructInit(void)
+{
+    memset(stdRxFilters, 0, sizeof(stdRxFilters));
+    memset(extRxFilters, 0, sizeof(extRxFilters));
+
+    for(uint32_t i = 0; i < RX_FILTER_MAX_STANDARD; i++) {
+        stdRxFilters[i].enabled = 0U;
+        stdRxFilters[i].idType = RX_FILTER_ID_STANDARD;
+        stdRxFilters[i].mode = RX_FILTER_MODE_ID;
+        stdRxFilters[i].filterIndex = i;
+        stdRxFilters[i].id = 0U;
+        stdRxFilters[i].mask = 0x7FFU;
+    }
+    for(uint32_t i = 0; i < RX_FILTER_MAX_EXTENDED; i++) {
+        extRxFilters[i].enabled = 0U;
+        extRxFilters[i].idType = RX_FILTER_ID_EXTENDED;
+        extRxFilters[i].mode = RX_FILTER_MODE_ID;
+        extRxFilters[i].filterIndex = i;
+        extRxFilters[i].id = 0U;
+        extRxFilters[i].mask = 0x1FFFFFFFU;
+    }
+    return HAL_OK;
+}
+
+
+HAL_StatusTypeDef CAN_ApplyAllFilter(void)
+{
+    HAL_StatusTypeDef sts = HAL_OK;
+
+    if(hfdcan1.State != HAL_FDCAN_STATE_READY) {
+        return HAL_ERROR;
+    }
+
+    for(uint32_t i = 0; i < RX_FILTER_MAX_STANDARD; i++) {
+        if(stdRxFilters[i].enabled == 0U) {
+            continue;
+        }
+        sts = CAN_ProgramFilterElement(&stdRxFilters[i]);
+        if(sts != HAL_OK) {
+            return sts;
+        }
+    }
+
+    for(uint32_t i = 0; i < RX_FILTER_MAX_EXTENDED; i++) {
+        if(extRxFilters[i].enabled == 0U) {
+            continue;
+        }
+        sts = CAN_ProgramFilterElement(&extRxFilters[i]);
+        if(sts != HAL_OK) {
+            return sts;
+        }
+    }
+
+    return CAN_ApplyGlobalFilter();
+}
+
+
+HAL_StatusTypeDef CAN_SetRxFilter(uint8_t filterIndex,
+                                 uint8_t idType,
+                                 uint8_t mode,
+                                 uint32_t id,
+                                 uint32_t mask)
+{
+    uint32_t maxFilterCount = 0;
+    RxFilterConfig_t *filterArray = (RxFilterConfig_t *)0;
+
+    if(hfdcan1.State != HAL_FDCAN_STATE_READY) {
+        return HAL_ERROR;
+    }
+
+    if((idType != RX_FILTER_ID_STANDARD) && (idType != RX_FILTER_ID_EXTENDED)) {
+        return HAL_ERROR;
+    }
+
+    if((mode != RX_FILTER_MODE_ID) && (mode != RX_FILTER_MODE_MASK)) {
+        return HAL_ERROR;
+    }
+
+    if(idType == RX_FILTER_ID_STANDARD) {
+        maxFilterCount = RX_FILTER_MAX_STANDARD;
+        filterArray = stdRxFilters;
+    } else {
+        maxFilterCount = RX_FILTER_MAX_EXTENDED;
+        filterArray = extRxFilters;
+    }
+
+    if(filterIndex >= maxFilterCount) {
+        return HAL_ERROR;
+    }
+
+    filterArray[filterIndex].enabled = 1U;
+    filterArray[filterIndex].idType = idType;
+    filterArray[filterIndex].mode = mode;
+    filterArray[filterIndex].filterIndex = filterIndex;
+    filterArray[filterIndex].id = id;
+    filterArray[filterIndex].mask = mask;
+
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef CAN_ClearRxFilter(uint8_t filterIndex, uint8_t idType)
+{
+    uint32_t maxFilterCount = 0;
+    RxFilterConfig_t *filterArray = (RxFilterConfig_t *)0;
+    uint32_t default_mask;
+
+    if(hfdcan1.State != HAL_FDCAN_STATE_READY) {
+        return HAL_ERROR;
+    }
+
+    if((idType != RX_FILTER_ID_STANDARD) && (idType != RX_FILTER_ID_EXTENDED)) {
+        return HAL_ERROR;
+    }
+
+    if(idType == RX_FILTER_ID_STANDARD) {
+        maxFilterCount = RX_FILTER_MAX_STANDARD;
+        filterArray = stdRxFilters;
+        default_mask = 0x7FFU;
+    } else {
+        maxFilterCount = RX_FILTER_MAX_EXTENDED;
+        filterArray = extRxFilters;
+        default_mask = 0x1FFFFFFFU;
+    }
+
+    if(filterIndex >= maxFilterCount) {
+        return HAL_ERROR;
+    }
+
+    filterArray[filterIndex].enabled = 0U;
+    filterArray[filterIndex].idType = idType;
+    filterArray[filterIndex].mode = RX_FILTER_MODE_ID;
+    filterArray[filterIndex].filterIndex = filterIndex;
+    filterArray[filterIndex].id = 0U;
+    filterArray[filterIndex].mask = default_mask;
+
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef CAN_ClearAllRxFilters(void)
+{
+    if(hfdcan1.State != HAL_FDCAN_STATE_READY) {
+        return HAL_ERROR;
+    }
+
+    for(uint32_t i = 0; i < RX_FILTER_MAX_STANDARD; i++) {
+        stdRxFilters[i].enabled = 0U;
+        stdRxFilters[i].idType = RX_FILTER_ID_STANDARD;
+        stdRxFilters[i].mode = RX_FILTER_MODE_ID;
+        stdRxFilters[i].filterIndex = i;
+        stdRxFilters[i].id = 0U;
+        stdRxFilters[i].mask = 0x7FFU;
+    }
+    for(uint32_t i = 0; i < RX_FILTER_MAX_EXTENDED; i++) {
+        extRxFilters[i].enabled = 0U;
+        extRxFilters[i].idType = RX_FILTER_ID_EXTENDED;
+        extRxFilters[i].mode = RX_FILTER_MODE_ID;
+        extRxFilters[i].filterIndex = i;
+        extRxFilters[i].id = 0U;
+        extRxFilters[i].mask = 0x1FFFFFFFU;
+    }
+
+    return HAL_OK;
+}
+
+uint8_t CAN_GetRxFilterCount(uint8_t idType)
+{
+    if(idType == RX_FILTER_ID_STANDARD) {
+        return CAN_CountEnabledFilters(stdRxFilters, RX_FILTER_MAX_STANDARD);
+    }
+    if(idType == RX_FILTER_ID_EXTENDED) {
+        return CAN_CountEnabledFilters(extRxFilters, RX_FILTER_MAX_EXTENDED);
+    }
+    return 0U;
+}
+
+HAL_StatusTypeDef CAN_GetRxFilterInfo(uint8_t filterIndex, uint8_t idType, RxFilterConfig_t * filterInfo)
+{
+    uint32_t maxFilterCount = 0;
+    RxFilterConfig_t *filterArray = (RxFilterConfig_t *)0;
+
+    if(filterInfo == (RxFilterConfig_t *)0) {
+        return HAL_ERROR;
+    }
+
+    if((idType != RX_FILTER_ID_STANDARD) && (idType != RX_FILTER_ID_EXTENDED)) {
+        return HAL_ERROR;
+    }
+
+    if(idType == RX_FILTER_ID_STANDARD) {
+        maxFilterCount = RX_FILTER_MAX_STANDARD;
+        filterArray = stdRxFilters;
+    } else {
+        maxFilterCount = RX_FILTER_MAX_EXTENDED;
+        filterArray = extRxFilters;
+    }
+
+    if(filterIndex >= maxFilterCount) {
+        return HAL_ERROR;
+    }
+
+    memcpy(filterInfo, &filterArray[filterIndex], sizeof(RxFilterConfig_t));
+
+    return HAL_OK;
+}
 
 static bool CAN_txQ_full()
 {
