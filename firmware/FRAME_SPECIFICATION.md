@@ -102,6 +102,7 @@ Payload[1]: Status (0 = HAL_OK, non-zero = HAL error code)
 **Error Conditions:**
 - `arbBitrate >= N_ARB_BITRATE` (index out of range)
 - `dataBitRate >= N_DATA_BITRATE` (index out of range)
+- Stored RX filter replay fails while reprogramming filter RAM before start
 - `HAL_FDCAN_Init()` or `HAL_FDCAN_Start()` returns a non-OK status
 
 ### Command: CAN Stop (0x02)
@@ -283,12 +284,12 @@ Payload[1]: Status (0 = success)
 
 ### Command: Set RX Filter (0x15)
 
-Configures one hardware FDCAN receive filter entry. The STM32G431C8 has 128 standard-ID slots and 64 extended-ID slots, mapped directly to the FDCAN hardware filter RAM.
+Stores one FDCAN receive filter entry in firmware state. The STM32G431C8 HAL-valid FDCAN filter banks are 28 standard-ID slots and 8 extended-ID slots, and the stored filter set is replayed into FDCAN filter RAM during `CMD_CAN_START`.
 
 **Request:**
 ```
 Payload[0]: 0x15 (CMD_SET_RX_FILTER)
-Payload[1]: filterIndex (0..127 for standard or 0..63 for extended)
+Payload[1]: filterIndex (0..27 for standard or 0..7 for extended)
 Payload[2]: enabled (0 = disable/clear, 1 = enable)
 Payload[3]: idType (0 = standard ID, 1 = extended ID)
 Payload[4]: mode (1 = ID-match, 2 = mask-match)
@@ -298,12 +299,12 @@ Payload[10-13]: mask (uint32_t, little-endian)
 ```
 
 **Behavior:**
-- If `enabled == 0` or `mode == 0`, the firmware clears the filter slot instead of programming it.
+- The command is rejected unless FDCAN is in `HAL_FDCAN_STATE_READY`.
+- If `enabled == 0` or `mode == 0`, the firmware clears the stored filter slot instead of configuring one.
 - For `mode == ID`, the firmware automatically applies the valid mask for the selected ID type:
   - Standard ID: `0x7FF`
   - Extended ID: `0x1FFFFFFF`
-- `HAL_FDCAN_ConfigFilter()` is used with `FDCAN_FILTER_MASK` and the selected filter index.
-- If the filter assignment is valid, the FDCAN global filter is reconfigured to route matching messages into RX FIFO 0.
+- The selected slot is stored in firmware and later replayed with `HAL_FDCAN_ConfigFilter()` using `FDCAN_FILTER_MASK` when `CMD_CAN_START` reinitialises the controller.
 
 **Response:**
 ```
@@ -311,20 +312,28 @@ Payload[0]: 0x15 (CMD_SET_RX_FILTER)
 Payload[1]: Status (0 = HAL_OK, non-zero = HAL error code)
 ```
 
+**Error Conditions:**
+- FDCAN is not in `HAL_FDCAN_STATE_READY`
+- `idType` is not `0` or `1`
+- `mode` is not `1` or `2` for enabled filters
+- `filterIndex` is outside the valid range for the selected ID type
+
 ### Command: Clear RX Filter (0x16)
 
-Disables a single hardware RX filter or clears all RX filters.
+Clears one stored RX filter entry or clears all stored RX filters.
 
 **Request:**
 ```
 Payload[0]: 0x16 (CMD_CLEAR_RX_FILTER)
-Payload[1]: filterIndex (0..127 standard or 0..63 extended, or 0xFF to clear all)
+Payload[1]: filterIndex (0..27 standard or 0..7 extended, or 0xFF to clear all)
 Payload[2]: idType (0 = standard ID, 1 = extended ID)
 ```
 
 **Behavior:**
-- `filterIndex == 0xFF` clears all configured hardware receive filters for both standard and extended ID banks.
-- Otherwise, only the selected filter slot is disabled with `FDCAN_FILTER_DISABLE`.
+- The command is rejected unless FDCAN is in `HAL_FDCAN_STATE_READY`.
+- `filterIndex == 0xFF` clears all stored receive filters for both standard and extended ID banks.
+- Otherwise, only the selected stored filter slot is cleared.
+- Hardware filter RAM is updated on the next successful `CMD_CAN_START` when the stored filter set is replayed.
 
 **Response:**
 ```
@@ -332,28 +341,56 @@ Payload[0]: 0x16 (CMD_CLEAR_RX_FILTER)
 Payload[1]: Status (0 = HAL_OK, non-zero = HAL error code)
 ```
 
-### Command: Get RX Filter (0x17)
+### Command: Get RX Filter Count (0x17)
 
-Returns the active hardware receive-filter count for the selected ID type.
+Returns the number of enabled stored receive-filter entries for the selected ID type.
 
 **Request:**
 ```
-Payload[0]: 0x17 (CMD_GET_RX_FILTER)
+Payload[0]: 0x17 (CMD_GET_RX_FILTER_COUNT)
 Payload[1]: idType (0 = standard ID, 1 = extended ID)
 ```
 
 **Response:**
 ```
-Payload[0]: 0x17 (CMD_GET_RX_FILTER)
+Payload[0]: 0x17 (CMD_GET_RX_FILTER_COUNT)
 Payload[1]: idType
 Payload[2]: filterCount
 Payload[3]: reserved (0)
 ```
 
 **Notes:**
-- Standard ID filter count is reported as the number of active standard-ID filter entries.
-- Extended ID filter count is reported as the number of active extended-ID filter entries.
+- Standard ID filter count is reported as the number of enabled stored standard-ID filter entries.
+- Extended ID filter count is reported as the number of enabled stored extended-ID filter entries.
 - The response is a count of configured entries, not a list of filter values.
+
+### Command: Get RX Filter Info (0x18)
+
+Returns the stored configuration for one RX filter slot.
+
+**Request:**
+```
+Payload[0]: 0x18 (CMD_GET_RX_FILTER_INFO)
+Payload[1]: filterIndex (0..27 for standard or 0..7 for extended)
+Payload[2]: idType (0 = standard ID, 1 = extended ID)
+```
+
+**Response:**
+```
+Payload[0]:  0x18 (CMD_GET_RX_FILTER_INFO)
+Payload[1]:  Status (0 = HAL_OK, non-zero = HAL error code)
+Payload[2]:  filterIndex
+Payload[3]:  enabled
+Payload[4]:  idType
+Payload[5]:  mode
+Payload[6-9]:   id (uint32_t, little-endian)
+Payload[10-13]: mask (uint32_t, little-endian)
+```
+
+**Notes:**
+- This command returns the firmware's stored filter slot contents, not a direct readback from FDCAN hardware registers.
+- Disabled or never-configured slots return `enabled = 0` and zeroed fields.
+- The command validates `filterIndex`, `idType`, and the output pointer before copying the slot data.
 
 ### Command: Enter DFU (0xF0)
 

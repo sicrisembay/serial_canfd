@@ -141,7 +141,43 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
             }
 
             if(HAL_OK == sts) {
-                sts = CAN_ClearAllRxFilters();
+                FDCAN_FilterTypeDef filterConfig = {
+                    .IdType = FDCAN_STANDARD_ID,
+                    .FilterIndex = 0,
+                    .FilterType = FDCAN_FILTER_MASK,
+                    .FilterConfig = FDCAN_FILTER_DISABLE,
+                    .FilterID1 = 0,
+                    .FilterID2 = 0
+                };
+                /* 
+                 * Setup filters: 
+                 *   1. Clear all filters first
+                 *   2. Re-apply the existing ones 
+                 */
+                if(HAL_OK == sts) {
+                    // Clear all standard filters
+                    filterConfig.IdType = FDCAN_STANDARD_ID;
+					for(uint8_t i = 0; i < RX_FILTER_MAX_STANDARD; i++) {
+                        filterConfig.FilterIndex = i;
+						sts = HAL_FDCAN_ConfigFilter(&hfdcan1, &filterConfig);
+						if(sts != HAL_OK) {
+							break;
+						}
+					}
+                }
+                if(HAL_OK == sts) {
+                    // Clear all extended filters
+                	filterConfig.IdType = FDCAN_EXTENDED_ID;
+                    for(uint8_t i = 0; i < RX_FILTER_MAX_EXTENDED; i++) {
+                        filterConfig.FilterIndex = i;
+                        sts = HAL_FDCAN_ConfigFilter(&hfdcan1, &filterConfig);
+                        if(sts != HAL_OK) {
+                            break;
+                        }
+                    }
+                }
+
+                sts = CAN_ApplyAllFilter();
             }
 
             if(HAL_OK == sts) {
@@ -304,12 +340,24 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
             break;
         }
         case CMD_SET_RX_FILTER: {
+            HAL_StatusTypeDef sts = HAL_OK;
             uint8_t filterIndex = rxFrameBuffer[(index + PAYLOAD_OFFSET + 1) % FRAME_RX_SIZE];
             uint8_t enabled = rxFrameBuffer[(index + PAYLOAD_OFFSET + 2) % FRAME_RX_SIZE];
             uint8_t idType = rxFrameBuffer[(index + PAYLOAD_OFFSET + 3) % FRAME_RX_SIZE];
             uint8_t mode = rxFrameBuffer[(index + PAYLOAD_OFFSET + 4) % FRAME_RX_SIZE];
             uint32_t id = 0U;
             uint32_t mask = 0U;
+
+            if(hfdcan1.State != HAL_FDCAN_STATE_READY) {
+                sts = HAL_ERROR;
+
+                respLen = 0;
+                responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_SET_RX_FILTER;
+                responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)sts;
+                respLen += FRAME_OVERHEAD;
+                PARSER_SendFrame(responseBuffer, respLen);
+                break;
+            }
 
             id |= (uint32_t)rxFrameBuffer[(index + PAYLOAD_OFFSET + 6) % FRAME_RX_SIZE];
             id |= ((uint32_t)rxFrameBuffer[(index + PAYLOAD_OFFSET + 7) % FRAME_RX_SIZE] << 8);
@@ -321,8 +369,21 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
             mask |= ((uint32_t)rxFrameBuffer[(index + PAYLOAD_OFFSET + 12) % FRAME_RX_SIZE] << 16);
             mask |= ((uint32_t)rxFrameBuffer[(index + PAYLOAD_OFFSET + 13) % FRAME_RX_SIZE] << 24);
 
-            if((enabled == 0U) || (idType > RX_FILTER_ID_EXTENDED) || (mode == RX_FILTER_MODE_DISABLE)) {
-                HAL_StatusTypeDef sts = CAN_ClearRxFilter(filterIndex, idType);
+            if((idType > RX_FILTER_ID_EXTENDED) ||
+               ((idType == RX_FILTER_ID_STANDARD) && (filterIndex >= RX_FILTER_MAX_STANDARD)) ||
+               ((idType == RX_FILTER_ID_EXTENDED) && (filterIndex >= RX_FILTER_MAX_EXTENDED))) {
+                sts = HAL_ERROR;
+
+                respLen = 0;
+                responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_SET_RX_FILTER;
+                responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)sts;
+                respLen += FRAME_OVERHEAD;
+                PARSER_SendFrame(responseBuffer, respLen);
+                break;
+            }
+
+            if((enabled == 0U) || (mode == RX_FILTER_MODE_DISABLE)) {
+                sts = CAN_ClearRxFilter(filterIndex, idType);
                 respLen = 0;
                 responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_SET_RX_FILTER;
                 responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)sts;
@@ -366,15 +427,40 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
             PARSER_SendFrame(responseBuffer, respLen);
             break;
         }
-        case CMD_GET_RX_FILTER: {
+        case CMD_GET_RX_FILTER_COUNT: {
             uint8_t idType = rxFrameBuffer[(index + PAYLOAD_OFFSET + 1) % FRAME_RX_SIZE];
             uint8_t filterCount = CAN_GetRxFilterCount(idType);
 
             respLen = 0;
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_GET_RX_FILTER;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_GET_RX_FILTER_COUNT;
             responseBuffer[PAYLOAD_OFFSET + respLen++] = idType;
             responseBuffer[PAYLOAD_OFFSET + respLen++] = filterCount;
             responseBuffer[PAYLOAD_OFFSET + respLen++] = 0;  // reserved/valid
+            respLen += FRAME_OVERHEAD;
+            PARSER_SendFrame(responseBuffer, respLen);
+            break;
+        }
+        case CMD_GET_RX_FILTER_INFO: {
+            uint8_t filterIndex = rxFrameBuffer[(index + PAYLOAD_OFFSET + 1) % FRAME_RX_SIZE];
+            uint8_t idType = rxFrameBuffer[(index + PAYLOAD_OFFSET + 2) % FRAME_RX_SIZE];
+            RxFilterConfig_t filterInfo = {0};
+            HAL_StatusTypeDef sts = CAN_GetRxFilterInfo(filterIndex, idType, &filterInfo);
+
+            respLen = 0;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_GET_RX_FILTER_INFO;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)sts;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = filterInfo.filterIndex;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = filterInfo.enabled;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = filterInfo.idType;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = filterInfo.mode;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(filterInfo.id & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((filterInfo.id >> 8) & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((filterInfo.id >> 16) & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((filterInfo.id >> 24) & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(filterInfo.mask & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((filterInfo.mask >> 8) & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((filterInfo.mask >> 16) & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((filterInfo.mask >> 24) & 0xFF);
             respLen += FRAME_OVERHEAD;
             PARSER_SendFrame(responseBuffer, respLen);
             break;

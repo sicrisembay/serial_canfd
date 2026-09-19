@@ -36,7 +36,8 @@
 #define CMD_RESET_CAN_STATS     (0x14)
 #define CMD_SET_RX_FILTER       (0x15)
 #define CMD_CLEAR_RX_FILTER     (0x16)
-#define CMD_GET_RX_FILTER       (0x17)
+#define CMD_GET_RX_FILTER_COUNT (0x17)
+#define CMD_GET_RX_FILTER_INFO  (0x18)
 #define CMD_ENTER_DFU           (0xF0)
 
 void PARSER_Store(uint8_t *pBuf, uint32_t len);
